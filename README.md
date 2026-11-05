@@ -47,7 +47,7 @@ Edit `prompts/system.md` directly in VS Code, including through Remote SSH on th
 Requires Git and Docker Engine with Compose. From an account allowed to create `/opt/gryt-gigachad`, clone this repository there:
 
 ```sh
-git clone <repository-url> /opt/gryt-gigachad
+git clone https://github.com/Inferlopec/gigachad /opt/gryt-gigachad
 cd /opt/gryt-gigachad
 cp .env.example .env
 chmod 600 .env
