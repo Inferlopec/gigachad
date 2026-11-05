@@ -4,8 +4,8 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
-function integer(env: NodeJS.ProcessEnv, name: string): number {
-  const value = Number(required(env, name));
+function integer(env: NodeJS.ProcessEnv, name: string, fallback?: number): number {
+  const value = env[name] === undefined && fallback !== undefined ? fallback : Number(required(env, name));
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer.`);
   return value;
 }
@@ -29,7 +29,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     apiKey: required(env, 'LLM_API_KEY'),
     contextTokens: integer(env, 'LLM_CONTEXT_TOKENS'),
     maxTokens: integer(env, 'LLM_MAX_TOKENS'),
-    timeoutMs: integer(env, 'LLM_TIMEOUT_MS'),
+    timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
   };
   if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
   return config;

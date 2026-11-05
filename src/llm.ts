@@ -35,6 +35,7 @@ export async function complete(config: LlmConfig, system: string, conversation: 
     body: JSON.stringify({
       model: config.model,
       stream: false,
+      chat_template_kwargs: { enable_thinking: false },
       max_tokens: config.maxTokens,
       messages: [{ role: 'system', content: system }, ...messages],
     }),

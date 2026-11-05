@@ -47,6 +47,7 @@ test('LLM sends configured Chat Completions request and reads answer', async (t)
   assert.equal(auth, 'Bearer test-key');
   assert.deepEqual(payload, {
     model: config.model, stream: false, max_tokens: 1024,
+    chat_template_kwargs: { enable_thinking: false },
     messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'hello' }],
   });
 });
@@ -106,8 +107,12 @@ test('configuration requires channel, credentials and valid budgets', () => {
     LLM_MAX_TOKENS: '1024', LLM_TIMEOUT_MS: '60000',
   };
   assert.equal(loadConfig(env).contextTokens, 131000);
+  assert.equal(loadConfig(env).timeoutMs, 60000);
+  assert.equal(loadConfig({ ...env, LLM_TIMEOUT_MS: undefined }).timeoutMs, 120000);
+  assert.equal(loadConfig({ ...env, LLM_TIMEOUT_MS: '180000' }).timeoutMs, 180000);
   assert.throws(() => loadConfig({ ...env, GRYT_ALLOWED_CHANNEL_ID: '' }), /GRYT_ALLOWED_CHANNEL_ID/);
   assert.throws(() => loadConfig({ ...env, LLM_API_KEY: '' }), /LLM_API_KEY/);
   assert.throws(() => loadConfig({ ...env, LLM_MAX_TOKENS: '131000' }), /leave room/);
   assert.throws(() => loadConfig({ ...env, LLM_TIMEOUT_MS: '-1' }), /positive integer/);
+  assert.throws(() => loadConfig({ ...env, LLM_TIMEOUT_MS: '' }), /LLM_TIMEOUT_MS/);
 });
