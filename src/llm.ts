@@ -3,6 +3,20 @@ import type { Config } from './config.ts';
 type LlmConfig = Pick<Config, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
+// Only expose fixed diagnostics; upstream bodies and arbitrary error messages can contain private data.
+export function describeLlmFailure(error: unknown): string {
+  if (!(error instanceof Error)) return 'Unexpected LLM failure';
+  if (error.name === 'TimeoutError') return 'LLM request timed out';
+  if (error.name === 'AbortError') return 'LLM request aborted';
+  if (error instanceof SyntaxError) return 'LLM returned invalid JSON';
+  if (/^LLM HTTP \d{3}$/.test(error.message) || [
+    'Input exceeds conservative context budget', 'Empty LLM body',
+    'LLM response exceeds 1 MiB', 'Invalid LLM answer',
+  ].includes(error.message)) return error.message;
+  if (error instanceof TypeError && error.message === 'fetch failed') return 'LLM network or TLS connection failed';
+  return 'Unexpected LLM failure';
+}
+
 export async function complete(config: LlmConfig, system: string, conversation: ChatMessage[], shutdown?: AbortSignal): Promise<string> {
   // Byte count is a conservative input budget, not a model-specific token count.
   // Reserve room for chat framing and the requested output without a tokenizer dependency.

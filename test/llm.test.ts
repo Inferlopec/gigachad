@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import test from 'node:test';
-import { complete } from '../src/llm.ts';
+import { complete, describeLlmFailure } from '../src/llm.ts';
 import { loadConfig } from '../src/config.ts';
 
 async function server(t: test.TestContext, handler: (req: IncomingMessage, res: ServerResponse) => void) {
@@ -19,6 +19,16 @@ const config = {
   baseUrl: '', apiKey: 'test-key', model: 'qwen3.8-27b-unleashed-web',
   timeoutMs: 2000, maxTokens: 1024, contextTokens: 131000,
 };
+
+test('LLM diagnostics report actionable failures without logging private error text', () => {
+  assert.equal(describeLlmFailure(new Error('LLM HTTP 401')), 'LLM HTTP 401');
+  assert.equal(describeLlmFailure(new Error('Input exceeds conservative context budget')), 'Input exceeds conservative context budget');
+  assert.equal(describeLlmFailure(new DOMException('private timeout details', 'TimeoutError')), 'LLM request timed out');
+  assert.equal(describeLlmFailure(new SyntaxError('private response body')), 'LLM returned invalid JSON');
+  assert.equal(describeLlmFailure(new TypeError('fetch failed')), 'LLM network or TLS connection failed');
+  assert.equal(describeLlmFailure(new Error('private API key or message text')), 'Unexpected LLM failure');
+  assert.equal(describeLlmFailure('private response'), 'Unexpected LLM failure');
+});
 
 test('LLM sends configured Chat Completions request and reads answer', async (t) => {
   let payload: unknown;

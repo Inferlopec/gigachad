@@ -12,7 +12,11 @@ A minimal mention-only AI bot for `https://chat.inferlo.xyz`. Built with `@gryt/
 
 Requires Git and Docker Engine with Compose.
 
+On the remote server, log in as the account that will install and update the bot. Prepare a directory owned by that account, then clone without `sudo`:
+
 ```sh
+sudo mkdir -p /opt/gryt-gigachad
+sudo chown "$(id -u):$(id -g)" /opt/gryt-gigachad
 git clone https://github.com/Inferlopec/gigachad /opt/gryt-gigachad
 cd /opt/gryt-gigachad
 cp .env.example .env
@@ -45,18 +49,24 @@ docker compose logs -f --tail=100 gigachad
 
 ### Update
 
-Preserve local prompt edits before pulling:
+Run these commands on the remote server using the same account that installed the bot:
 
 ```sh
 cd /opt/gryt-gigachad
-git stash push -- prompts/system.md   # or commit locally
 git pull --ff-only
-git stash pop                          # resolve conflicts if any
 docker compose up -d --build
 docker compose logs --tail=100 gigachad
 ```
 
-The `.env` file and identity volume survive updates. Check `.env.example` for new keys. To apply only `.env` changes: `docker compose up -d --force-recreate`.
+The `.env` file and identity volume survive updates. In-memory conversation history resets when the container restarts. Save any custom prompt edits before pulling and check `.env.example` for new settings. To apply only `.env` changes: `docker compose up -d --force-recreate`.
+
+If Git reports **dubious ownership** after an earlier installation under another account, run this once as the account that will manage the bot, then retry the update:
+
+```sh
+sudo chown -R "$(id -u):$(id -g)" /opt/gryt-gigachad
+```
+
+Run Git commands without `sudo`. If Docker requires elevated permissions, use `sudo` for the `docker compose` commands only.
 
 ### Back up the identity
 

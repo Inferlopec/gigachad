@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { Message } from '@gryt/bot';
 import type { ChatMessage } from './llm.ts';
+import { describeLlmFailure } from './llm.ts';
 
 // Skip fenced/inline code, escapes, images and ordinary links before looking for a mention.
 const TOKENS = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\1[^\n]*(?:\n|$)|$)|(`+)[^\n]*?\2|\\[\s\S]|https?:\/\/\S+|!?\[([^\]\n]*)\]\(([^)\s]*)\)/g;
@@ -78,8 +79,10 @@ export function createHandler(deps: Dependencies) {
       stage = 'LLM request';
       const answer = await deps.complete(system, conversation);
       await send(answer);
-    } catch {
-      deps.log(`${stage} failed. Check configuration, request limits, or service availability.`);
+    } catch (error) {
+      deps.log(stage === 'LLM request'
+        ? `LLM request failed: ${describeLlmFailure(error)}.`
+        : 'System prompt failed. Check that prompts/system.md is readable and nonempty.');
       await send('I couldn’t complete that request. Please try again later.');
     } finally {
       deps.stopTyping(message.conversationId);
