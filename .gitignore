@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+data/
+gryt-bot-identity.json
+.tools/
+identity-backup*.tar.gz

@@ -1,0 +1,19 @@
+name: gryt-gigachad
+services:
+  gigachad:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      GRYT_IDENTITY_PATH: /data/gryt-bot-identity.json
+    volumes:
+      - identity:/data
+      - ./prompts:/app/prompts:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+volumes:
+  identity:

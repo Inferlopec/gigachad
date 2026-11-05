@@ -1,0 +1,16 @@
+{
+  "name": "gryt-gigachad",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "node --env-file=.env src/index.ts",
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": { "@gryt/bot": "0.3.1" },
+  "devDependencies": { "@types/node": "^24.0.0", "typescript": "^5.9.3" }
+}
