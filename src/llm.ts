@@ -1,11 +1,16 @@
 import type { Config } from './config.ts';
 
 type LlmConfig = Pick<Config, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
+export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-export async function complete(config: LlmConfig, system: string, user: string, shutdown?: AbortSignal): Promise<string> {
+export async function complete(config: LlmConfig, system: string, conversation: ChatMessage[], shutdown?: AbortSignal): Promise<string> {
   // Byte count is a conservative input budget, not a model-specific token count.
   // Reserve room for chat framing and the requested output without a tokenizer dependency.
-  if (Buffer.byteLength(system + user, 'utf8') + config.maxTokens + 256 > config.contextTokens) {
+  const messages = conversation.slice();
+  const inputBytes = () => Buffer.byteLength(system, 'utf8') +
+    messages.reduce((sum, message) => sum + Buffer.byteLength(message.content, 'utf8') + 32, 0);
+  while (messages.length > 1 && inputBytes() + config.maxTokens + 256 > config.contextTokens) messages.shift();
+  if (!messages.length || inputBytes() + config.maxTokens + 256 > config.contextTokens) {
     throw new Error('Input exceeds conservative context budget');
   }
   const timeout = AbortSignal.timeout(config.timeoutMs);
@@ -17,7 +22,7 @@ export async function complete(config: LlmConfig, system: string, user: string, 
       model: config.model,
       stream: false,
       max_tokens: config.maxTokens,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      messages: [{ role: 'system', content: system }, ...messages],
     }),
     signal,
     redirect: 'error',

@@ -35,7 +35,7 @@ async function main() {
     selfId: () => selfId,
     available,
     promptPath: resolve('prompts/system.md'),
-    complete: (system, user) => complete(config, system, user, shutdown.signal),
+    complete: (system, messages) => complete(config, system, messages, shutdown.signal),
     send: (channel, text) => bot.send(channel, text),
     typing: (channel) => bot.typing(channel),
     stopTyping: (channel) => bot.stopTyping(channel),

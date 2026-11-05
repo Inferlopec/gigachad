@@ -41,20 +41,20 @@ test('channel, self, system, readiness, permission and duplicate guards precede 
   t.after(() => rm(dir, { recursive: true, force: true }));
   const promptPath = join(dir, 'system.md');
   await writeFile(promptPath, 'system one');
-  const calls: string[][] = [];
+  const calls: { system: string; messages: unknown[] }[] = [];
   const sent: string[][] = [];
   let id: string | null = 'bot-123';
   let available = true;
   const handler = createHandler({
     channelId: 'allowed', selfId: () => id, available: () => available, promptPath,
-    complete: async (system, user) => { calls.push([system, user]); return 'answer'; },
+    complete: async (system, messages) => { calls.push({ system, messages }); return 'answer'; },
     send: async (channel, text) => { sent.push([channel, text]); },
     typing: () => {}, stopTyping: () => {}, log: () => {},
   });
-  for (const overrides of [
+  for (const [index, overrides] of [
     { conversationId: 'other' }, { isOwn: true }, { senderServerUserId: 'bot-123' },
     { isSystem: true }, { text: null }, { text: '@gigachad hi' },
-  ]) await handler(message(overrides));
+  ].entries()) await handler(message({ messageId: `ignored-${index}`, ...overrides }));
   id = null;
   await handler(message());
   id = 'bot-123'; available = false;
@@ -64,15 +64,47 @@ test('channel, self, system, readiness, permission and duplicate guards precede 
   available = true;
   await handler(message());
   await handler(message());
-  assert.deepEqual(calls, [['system one', 'hello']]);
+  assert.deepEqual(calls, [{ system: 'system one', messages: [
+    { role: 'user', content: 'User: @gigachad hi' },
+    { role: 'user', content: 'User: hello' },
+  ] }]);
   assert.deepEqual(sent, [['allowed', 'answer']]);
   await writeFile(promptPath, 'system two');
   await handler(message({ messageId: '2' }));
-  assert.equal(calls[1]?.[0], 'system two');
+  assert.equal(calls[1]?.system, 'system two');
+  assert.deepEqual(calls[1]?.messages, [
+    { role: 'user', content: 'User: @gigachad hi' },
+    { role: 'user', content: 'User: hello' },
+    { role: 'assistant', content: 'answer' },
+    { role: 'user', content: 'User: hello' },
+  ]);
   await writeFile(promptPath, '');
   await handler(message({ messageId: '3' }));
   assert.equal(calls.length, 2);
   assert.match(sent[2]![1]!, /couldn’t complete/);
+});
+
+test('recent channel messages are included, bounded, and isolated from other channels', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-history-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'system');
+  let captured: unknown;
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (_system, messages) => { captured = messages; return 'answer'; },
+    send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
+  });
+  for (let i = 0; i < 12; i++) {
+    await handler(message({ messageId: String(i), text: `line ${i}`, senderNickname: 'Alice' }));
+  }
+  await handler(message({ messageId: 'outside', conversationId: 'other', text: 'secret' }));
+  await handler(message({ messageId: 'self', isOwn: true, text: 'own' }));
+  await handler(message({ messageId: 'ask', text: `${mention} recap` }));
+  assert.deepEqual(captured, [
+    ...Array.from({ length: 10 }, (_, i) => ({ role: 'user', content: `Alice: line ${i + 2}` })),
+    { role: 'user', content: 'User: recap' },
+  ]);
 });
 
 test('busy requests are bounded and send failures are caught without retrying', async (t) => {

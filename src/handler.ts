@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Message } from '@gryt/bot';
+import type { ChatMessage } from './llm.ts';
 
 // Skip fenced/inline code, escapes, images and ordinary links before looking for a mention.
 const TOKENS = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\1[^\n]*(?:\n|$)|$)|(`+)[^\n]*?\2|\\[\s\S]|https?:\/\/\S+|!?\[([^\]\n]*)\]\(([^)\s]*)\)/g;
@@ -29,7 +30,7 @@ type Dependencies = {
   selfId: () => string | null;
   available: () => boolean;
   promptPath: string;
-  complete: (system: string, user: string) => Promise<string>;
+  complete: (system: string, messages: ChatMessage[]) => Promise<string>;
   send: (channelId: string, text: string) => Promise<unknown>;
   typing: (channelId: string) => void;
   stopTyping: (channelId: string) => void;
@@ -38,19 +39,33 @@ type Dependencies = {
 
 export function createHandler(deps: Dependencies) {
   const seen = new Set<string>();
+  const history: ChatMessage[] = [];
+  const remember = (entry: ChatMessage) => {
+    history.push(entry);
+    if (history.length > 10) history.shift();
+  };
   let busy = false;
   return async (message: Message): Promise<void> => {
     const id = deps.selfId();
     if (!id || !deps.available() || message.conversationId !== deps.channelId || message.isOwn ||
         message.senderServerUserId === id || message.isSystem || !message.text) return;
-    const user = stripOwnMention(message.text, id);
-    if (user === null || seen.has(message.messageId)) return;
+    if (seen.has(message.messageId)) return;
     seen.add(message.messageId);
     if (seen.size > 1000) seen.delete(seen.values().next().value!);
+    const user = stripOwnMention(message.text, id);
+    const name = (message.senderNickname || message.senderServerUserId).replace(/[\r\n]/g, ' ').slice(0, 80);
+    const current: ChatMessage = { role: 'user', content: `${name}: ${user === null ? message.text : user || 'Hello!'}` };
+    const conversation = [...history, current];
+    remember(current);
+    if (user === null) return;
 
     const send = async (text: string) => {
       if (!deps.available()) return;
-      try { await deps.send(message.conversationId, limitReply(text)); }
+      try {
+        const reply = limitReply(text);
+        await deps.send(message.conversationId, reply);
+        remember({ role: 'assistant', content: reply });
+      }
       catch { deps.log('Gryt response send failed; not retrying.'); }
     };
     if (busy) return send('I’m busy with another request. Please try again shortly.');
@@ -61,7 +76,7 @@ export function createHandler(deps: Dependencies) {
       const system = await readFile(deps.promptPath, 'utf8');
       if (!system.trim()) throw new Error('Empty system prompt');
       stage = 'LLM request';
-      const answer = await deps.complete(system, user || 'Hello!');
+      const answer = await deps.complete(system, conversation);
       await send(answer);
     } catch {
       deps.log(`${stage} failed. Check configuration, request limits, or service availability.`);

@@ -32,13 +32,33 @@ test('LLM sends configured Chat Completions request and reads answer', async (t)
     payload = JSON.parse(Buffer.concat(chunks).toString());
     res.end(JSON.stringify({ choices: [{ message: { content: ' answer ' } }] }));
   });
-  assert.equal(await complete({ ...config, baseUrl }, 'system', 'hello'), 'answer');
+  assert.equal(await complete({ ...config, baseUrl }, 'system', [{ role: 'user', content: 'hello' }]), 'answer');
   assert.equal(url, '/v1/chat/completions');
   assert.equal(auth, 'Bearer test-key');
   assert.deepEqual(payload, {
     model: config.model, stream: false, max_tokens: 1024,
     messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'hello' }],
   });
+});
+
+test('LLM drops oldest history before exceeding the context budget', async (t) => {
+  let payload: { messages: unknown[] } | undefined;
+  const baseUrl = await server(t, async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    payload = JSON.parse(Buffer.concat(chunks).toString());
+    res.end(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+  });
+  const conversation = [
+    { role: 'user' as const, content: 'old'.repeat(100) },
+    { role: 'assistant' as const, content: 'middle'.repeat(50) },
+    { role: 'user' as const, content: 'latest question' },
+  ];
+  await complete({ ...config, baseUrl, contextTokens: 380, maxTokens: 50 }, 'system', conversation);
+  assert.deepEqual(payload?.messages, [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'latest question' },
+  ]);
 });
 
 test('LLM rejects HTTP errors, invalid answers, oversized bodies and timeouts', async (t) => {
@@ -52,20 +72,20 @@ test('LLM rejects HTTP errors, invalid answers, oversized bodies and timeouts', 
   });
   for (const status of ['401', '429', '500']) {
     mode = status;
-    await assert.rejects(complete({ ...config, baseUrl }, 's', 'u'), new RegExp(`HTTP ${status}`));
+    await assert.rejects(complete({ ...config, baseUrl }, 's', [{ role: 'user', content: 'u' }]), new RegExp(`HTTP ${status}`));
   }
   for (mode of ['invalid', 'empty', 'oversize']) {
-    await assert.rejects(complete({ ...config, baseUrl }, 's', 'u'));
+    await assert.rejects(complete({ ...config, baseUrl }, 's', [{ role: 'user', content: 'u' }]));
   }
   mode = 'timeout';
-  await assert.rejects(complete({ ...config, baseUrl, timeoutMs: 30 }, 's', 'u'), { name: 'TimeoutError' });
+  await assert.rejects(complete({ ...config, baseUrl, timeoutMs: 30 }, 's', [{ role: 'user', content: 'u' }]), { name: 'TimeoutError' });
 });
 
 test('context guard rejects oversized input and shutdown aborts requests', async () => {
-  await assert.rejects(complete(config, 'x'.repeat(131000), 'hi'), /context budget/);
+  await assert.rejects(complete(config, 'x'.repeat(131000), [{ role: 'user', content: 'hi' }]), /context budget/);
   const controller = new AbortController();
   controller.abort();
-  await assert.rejects(complete(config, 's', 'u', controller.signal));
+  await assert.rejects(complete(config, 's', [{ role: 'user', content: 'u' }], controller.signal));
 });
 
 test('configuration requires channel, credentials and valid budgets', () => {
