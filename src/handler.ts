@@ -56,7 +56,9 @@ export function createHandler(deps: Dependencies) {
     const user = stripOwnMention(message.text, id);
     const name = (message.senderNickname || message.senderServerUserId).replace(/[\r\n]/g, ' ').slice(0, 80);
     const current: ChatMessage = { role: 'user', content: `${name}: ${user === null ? message.text : user || 'Hello!'}` };
-    const conversation = [...history, current];
+    // Send only the most recent 5 messages (including the trigger) to the model.
+    // Older context is noise in a small channel and degrades answer quality.
+    const conversation = [...history.slice(-4), current];
     remember(current);
     if (user === null) return;
 
@@ -69,7 +71,12 @@ export function createHandler(deps: Dependencies) {
       }
       catch { deps.log('Gryt response send failed; not retrying.'); }
     };
-    if (busy) return send('I’m busy with another request. Please try again shortly.');
+    if (busy) {
+      // In a 2-3 person channel a "busy" reply is noise. The typing indicator
+      // already shows the bot is working, so silently drop and log instead.
+      deps.log('Request dropped: busy with another request.');
+      return;
+    }
     busy = true;
     const refreshTyping = () => {
       if (!deps.available()) return;

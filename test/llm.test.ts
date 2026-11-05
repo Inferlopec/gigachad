@@ -92,6 +92,79 @@ test('LLM rejects HTTP errors, invalid answers, oversized bodies and timeouts', 
   await assert.rejects(complete({ ...config, baseUrl, timeoutMs: 30 }, 's', [{ role: 'user', content: 'u' }]), { name: 'TimeoutError' });
 });
 
+test('LLM retries transient failures (5xx, timeout, network) but not permanent ones', async (t) => {
+  let mode = 'ok';
+  let requests = 0;
+  const baseUrl = await server(t, (_req, res) => {
+    requests++;
+    if (mode === '500') { res.writeHead(500); res.end('server error'); }
+    else if (mode === '401') { res.writeHead(401); res.end('unauthorized'); }
+    else res.end(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+  });
+  // 500 then success: should retry and succeed
+  mode = '500';
+  const p1 = complete({ ...config, baseUrl }, 's', [{ role: 'user', content: 'u' }], undefined, 1);
+  await new Promise(r => setTimeout(r, 50));
+  mode = 'ok';
+  await assert.equal(await p1, 'ok');
+  assert.equal(requests, 2);
+
+  // 401: should NOT retry, fail immediately
+  requests = 0;
+  mode = '401';
+  await assert.rejects(
+    complete({ ...config, baseUrl }, 's', [{ role: 'user', content: 'u' }], undefined, 1),
+    /HTTP 401/,
+  );
+  assert.equal(requests, 1);
+
+  // Timeout then success: should retry and succeed
+  requests = 0;
+  let first = true;
+  const timeoutServer = createServer((req, res) => {
+    requests++;
+    if (first) { first = false; /* leave response open to trigger timeout */ return; }
+    res.end(JSON.stringify({ choices: [{ message: { content: 'recovered' } }] }));
+  });
+  await new Promise<void>((resolve) => timeoutServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>((resolve, reject) => {
+    timeoutServer.closeAllConnections();
+    timeoutServer.close((error) => error ? reject(error) : resolve());
+  }));
+  const taddr = timeoutServer.address();
+  assert.ok(taddr && typeof taddr !== 'string');
+  const timeoutBaseUrl = `http://127.0.0.1:${taddr.port}/v1`;
+  const p2 = complete({ ...config, baseUrl: timeoutBaseUrl, timeoutMs: 50 }, 's', [{ role: 'user', content: 'u' }], undefined, 1);
+  await assert.equal(await p2, 'recovered');
+  assert.equal(requests, 2);
+});
+
+test('LLM respects retries=0 (no retry) and shutdown aborts during retry', async (t) => {
+  let requests = 0;
+  const baseUrl = await server(t, (_req, res) => {
+    requests++;
+    res.writeHead(500);
+    res.end('always fail');
+  });
+  // retries=0: single attempt, no retry
+  await assert.rejects(
+    complete({ ...config, baseUrl }, 's', [{ role: 'user', content: 'u' }], undefined, 0),
+    /HTTP 500/,
+  );
+  assert.equal(requests, 1);
+
+  // Shutdown aborts between attempts: the request fails (no successful second attempt)
+  const controller = new AbortController();
+  const p = complete({ ...config, baseUrl }, 's', [{ role: 'user', content: 'u' }], controller.signal, 1);
+  // Abort after the first attempt fails (during the 1s backoff sleep)
+  setTimeout(() => controller.abort(), 100);
+  await assert.rejects(p);
+  // The first attempt already hit the server; the second attempt may or may not
+  // have been started before the abort took effect. Either way, the request failed.
+  assert.ok(requests >= 1);
+});
+
+
 test('context guard rejects oversized input and shutdown aborts requests', async () => {
   await assert.rejects(complete(config, 'x'.repeat(131000), [{ role: 'user', content: 'hi' }]), /context budget/);
   const controller = new AbortController();

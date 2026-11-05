@@ -101,8 +101,12 @@ test('recent channel messages are included, bounded, and isolated from other cha
   await handler(message({ messageId: 'outside', conversationId: 'other', text: 'secret' }));
   await handler(message({ messageId: 'self', isOwn: true, text: 'own' }));
   await handler(message({ messageId: 'ask', text: `${mention} recap` }));
+  // Only the 4 most recent channel messages plus the trigger are sent to the model.
   assert.deepEqual(captured, [
-    ...Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Alice: line ${i + 2}` })),
+    { role: 'user', content: 'Alice: line 18' },
+    { role: 'user', content: 'Alice: line 19' },
+    { role: 'user', content: 'Alice: line 20' },
+    { role: 'user', content: 'Alice: line 21' },
     { role: 'user', content: 'User: recap' },
   ]);
 });
@@ -126,11 +130,13 @@ test('busy requests are bounded and send failures are caught without retrying', 
   const first = handler(message());
   await started;
   await handler(message({ messageId: '2' }));
+  // Busy requests are silently dropped, not replied to.
   assert.equal(requests, 1);
-  assert.match(sent[0]!, /busy/);
+  assert.equal(sent.length, 0);
   release('answer');
   await first;
-  assert.equal(sent.length, 2);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0], 'answer');
 });
 
 for (const outcome of ['success', 'timeout', 'send failure']) {
