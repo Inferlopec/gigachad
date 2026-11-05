@@ -136,6 +136,7 @@ test/
 
 ### Notes
 
+- **Typing indicator:** Refreshed every five seconds while a request and its reply send are pending, then cleared when the operation finishes or fails.
 - **Thinking disabled:** Each LLM request sends `chat_template_kwargs: { "enable_thinking": false }`, the [Qwen/vLLM setting](https://qwen.readthedocs.io/en/stable/deployment/vllm.html) for disabling thinking. The inference server and model chat template must support this setting.
 - **Local LLM timeout:** `LLM_TIMEOUT_MS` defaults to `120000` (two minutes) when omitted. The example configuration uses the same value. Existing `.env` values still take precedence; set this to `120000` if an older installation uses `60000`, then run `docker compose up -d --force-recreate`. Increase it further if your model needs more time with conversation history. One request runs at a time, so a slower request also makes the bot busy for longer.
 - **Context window:** 131,000 tokens (input + output). `LLM_MAX_TOKENS` is the separate output budget. Input is bounded conservatively using UTF-8 byte length plus framing/output reserves, not a model-specific tokenizer.

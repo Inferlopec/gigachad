@@ -132,3 +132,57 @@ test('busy requests are bounded and send failures are caught without retrying', 
   await first;
   assert.equal(sent.length, 2);
 });
+
+for (const outcome of ['success', 'timeout', 'send failure']) {
+  test(`typing stays active through slow requests and stops after ${outcome}`, async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    const dir = await mkdtemp(join(tmpdir(), 'gigachad-typing-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const promptPath = join(dir, 'system.md');
+    await writeFile(promptPath, 'system');
+    let finish!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const pending = new Promise<string>((resolve, reject) => {
+      finish = () => outcome === 'timeout'
+        ? reject(new DOMException('Timed out', 'TimeoutError')) : resolve('answer');
+    });
+    let finishSend!: () => void;
+    let enteredSend!: () => void;
+    const sending = new Promise<void>((resolve) => { enteredSend = resolve; });
+    const pendingSend = new Promise<void>((resolve) => { finishSend = resolve; });
+    let available = true;
+    const typing: string[] = [];
+    const stopped: string[] = [];
+    const handler = createHandler({
+      channelId: 'allowed', selfId: () => 'bot-123', available: () => available, promptPath,
+      complete: () => { entered(); return pending; },
+      send: async () => {
+        enteredSend();
+        await pendingSend;
+        if (outcome === 'send failure') throw new Error('send failed');
+      },
+      typing: (channel) => { typing.push(channel); },
+      stopTyping: (channel) => { stopped.push(channel); }, log: () => {},
+    });
+    const request = handler(message());
+    await started;
+    assert.deepEqual(typing, ['allowed']);
+    t.mock.timers.tick(15000);
+    assert.equal(typing.length, 4);
+    available = false;
+    t.mock.timers.tick(5000);
+    assert.equal(typing.length, 4);
+    available = true;
+    finish();
+    await sending;
+    t.mock.timers.tick(5000);
+    assert.equal(typing.length, 5);
+    assert.equal(stopped.length, 0);
+    finishSend();
+    await request;
+    assert.deepEqual(stopped, ['allowed']);
+    t.mock.timers.tick(15000);
+    assert.equal(typing.length, 5);
+  });
+}

@@ -71,7 +71,15 @@ export function createHandler(deps: Dependencies) {
     };
     if (busy) return send('I’m busy with another request. Please try again shortly.');
     busy = true;
-    deps.typing(message.conversationId);
+    const refreshTyping = () => {
+      if (!deps.available()) return;
+      try { deps.typing(message.conversationId); }
+      catch { deps.log('Gryt typing indicator failed.'); }
+    };
+    refreshTyping();
+    // The SDK's typing indicator expires after about eight seconds.
+    const typingTimer = setInterval(refreshTyping, 5000);
+    typingTimer.unref();
     let stage = 'System prompt';
     try {
       const system = await readFile(deps.promptPath, 'utf8');
@@ -85,8 +93,9 @@ export function createHandler(deps: Dependencies) {
         : 'System prompt failed. Check that prompts/system.md is readable and nonempty.');
       await send('I couldn’t complete that request. Please try again later.');
     } finally {
-      deps.stopTyping(message.conversationId);
+      clearInterval(typingTimer);
       busy = false;
+      deps.stopTyping(message.conversationId);
     }
   };
 }
