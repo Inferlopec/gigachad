@@ -3,7 +3,7 @@
 A minimal mention-only AI bot for `https://chat.inferlo.xyz`. Built with `@gryt/bot` and an OpenAI-compatible Chat Completions endpoint.
 
 - Responds only to direct ID-based mentions in `GRYT_ALLOWED_CHANNEL_ID`
-- Each request includes up to 10 recent messages from the configured channel, plus the triggering message
+- Each request includes up to 20 recent messages from the configured channel, plus the triggering message
 - One LLM request at a time; duplicates and self-messages are filtered
 
 ## User Guide
@@ -140,7 +140,7 @@ test/
 - **Thinking disabled:** Each LLM request sends `chat_template_kwargs: { "enable_thinking": false }`, the [Qwen/vLLM setting](https://qwen.readthedocs.io/en/stable/deployment/vllm.html) for disabling thinking. The inference server and model chat template must support this setting.
 - **Local LLM timeout:** `LLM_TIMEOUT_MS` defaults to `120000` (two minutes) when omitted. The example configuration uses the same value. Existing `.env` values still take precedence; set this to `120000` if an older installation uses `60000`, then run `docker compose up -d --force-recreate`. Increase it further if your model needs more time with conversation history. One request runs at a time, so a slower request also makes the bot busy for longer.
 - **Context window:** 131,000 tokens (input + output). `LLM_MAX_TOKENS` is the separate output budget. Input is bounded conservatively using UTF-8 byte length plus framing/output reserves, not a model-specific tokenizer.
-- **Conversation history:** The bot remembers messages it sees in the configured channel while running, including replies it successfully sends. It keeps the latest 10 messages in memory and drops the oldest context when needed to fit the model budget. History resets on restart; it does not fetch older channel messages.
+- **Conversation history:** The bot remembers messages it sees in the configured channel while running, including replies it successfully sends. It keeps the latest 20 messages in memory and drops the oldest context when needed to fit the model budget. History resets on restart; it does not fetch older channel messages.
 - **Mention matching:** Links of the form `[@label](mention:<server-user-id>)`. Labels alone, code examples, escaped links, images, role mentions, `@everyone`, and `@here` do not trigger.
 - **Reliability:** LLM calls have a total timeout, reject HTTP errors and invalid/empty answers, cap response bodies at 1 MiB. Replies fit Gryt's 4,000 UTF-16-unit limit. SDK reconnection is automatic. Logs omit tokens, API keys, and message bodies.
 - **Local vs Docker identity:** Local development uses `./data/`, so it registers a separate bot unless you intentionally migrate the identity.

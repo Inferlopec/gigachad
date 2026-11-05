@@ -43,7 +43,7 @@ export function createHandler(deps: Dependencies) {
   const history: ChatMessage[] = [];
   const remember = (entry: ChatMessage) => {
     history.push(entry);
-    if (history.length > 10) history.shift();
+    if (history.length > 20) history.shift();
   };
   let busy = false;
   return async (message: Message): Promise<void> => {

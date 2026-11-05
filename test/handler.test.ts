@@ -95,14 +95,14 @@ test('recent channel messages are included, bounded, and isolated from other cha
     complete: async (_system, messages) => { captured = messages; return 'answer'; },
     send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
   });
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 22; i++) {
     await handler(message({ messageId: String(i), text: `line ${i}`, senderNickname: 'Alice' }));
   }
   await handler(message({ messageId: 'outside', conversationId: 'other', text: 'secret' }));
   await handler(message({ messageId: 'self', isOwn: true, text: 'own' }));
   await handler(message({ messageId: 'ask', text: `${mention} recap` }));
   assert.deepEqual(captured, [
-    ...Array.from({ length: 10 }, (_, i) => ({ role: 'user', content: `Alice: line ${i + 2}` })),
+    ...Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Alice: line ${i + 2}` })),
     { role: 'user', content: 'User: recap' },
   ]);
 });
