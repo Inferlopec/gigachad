@@ -192,3 +192,150 @@ for (const outcome of ['success', 'timeout', 'send failure']) {
     assert.equal(typing.length, 5);
   });
 }
+
+// ── maybeSearch tests ──────────────────────────────────────────────────────
+// maybeSearch is private to handler.ts. We test it through createHandler by
+// wiring extractQuery and search deps and observing what the LLM receives in
+// the system prompt (search context is appended there).
+
+test('maybeSearch: no search deps → no search context in system prompt', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-nosearch-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const calls: { system: string }[] = [];
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (system) => { calls.push({ system }); return 'answer'; },
+    send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
+    // No extractQuery, no search → search disabled.
+  });
+  await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.system, 'base system'); // no search context appended
+});
+
+test('maybeSearch: extractQuery returns null → no SearXNG call, no search context', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-extractnull-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const calls: { system: string }[] = [];
+  let searchCalled = false;
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (system) => { calls.push({ system }); return 'answer'; },
+    send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
+    extractQuery: async () => null, // NOSEARCH
+    search: async () => { searchCalled = true; return []; },
+  });
+  await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.system, 'base system'); // no search context
+  assert.equal(searchCalled, false); // SearXNG was never called
+});
+
+test('maybeSearch: extractQuery returns query + search returns results → search context in system prompt', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-searchok-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const calls: { system: string }[] = [];
+  const searchQueries: string[] = [];
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (system) => { calls.push({ system }); return 'answer'; },
+    send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
+    extractQuery: async (text) => {
+      assert.ok(text.length >= 15, 'extractQuery should receive the user text');
+      return 'france capital 2026';
+    },
+    search: async (query) => {
+      searchQueries.push(query);
+      return [
+        { title: 'Paris', url: 'https://example.com/paris', content: 'Paris is the capital.', engine: 'bing', score: 1 },
+      ];
+    },
+  });
+  await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
+  assert.equal(calls.length, 1);
+  assert.equal(searchQueries.length, 1);
+  assert.equal(searchQueries[0], 'france capital 2026');
+  // Search context is appended to the system prompt.
+  assert.ok(calls[0]?.system.startsWith('base system'));
+  assert.ok(calls[0]?.system.includes('Веб-поиск по запросу «france capital 2026»'));
+  assert.ok(calls[0]?.system.includes('Paris'));
+  assert.ok(calls[0]?.system.includes('https://example.com/paris'));
+});
+
+test('maybeSearch: extractQuery throws → no SearXNG call, no search context, answer still sent', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-extractthrow-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const calls: { system: string }[] = [];
+  const sent: string[] = [];
+  let searchCalled = false;
+  const logs: string[] = [];
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (system) => { calls.push({ system }); return 'answer'; },
+    send: async (_ch, text) => { sent.push(text); },
+    typing: () => {}, stopTyping: () => {}, log: (msg) => { logs.push(msg); },
+    extractQuery: async () => { throw new Error('LLM request timed out'); },
+    search: async () => { searchCalled = true; return []; },
+  });
+  await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.system, 'base system'); // no search context
+  assert.equal(searchCalled, false);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0], 'answer'); // answer still sent
+  assert.ok(logs.some((l) => l.includes('extraction failed')), 'should log extraction failure');
+});
+
+test('maybeSearch: search throws → no search context, answer still sent', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-searchthrow-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const calls: { system: string }[] = [];
+  const sent: string[] = [];
+  const logs: string[] = [];
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (system) => { calls.push({ system }); return 'answer'; },
+    send: async (_ch, text) => { sent.push(text); },
+    typing: () => {}, stopTyping: () => {}, log: (msg) => { logs.push(msg); },
+    extractQuery: async () => 'france capital 2026',
+    search: async () => { throw new Error('fetch failed'); },
+  });
+  await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.system, 'base system'); // no search context
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0], 'answer');
+  assert.ok(logs.some((l) => l.includes('Search failed')), 'should log search failure');
+});
+
+test('maybeSearch: search returns empty → no search context, answer still sent', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-searchempty-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const calls: { system: string }[] = [];
+  const sent: string[] = [];
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async (system) => { calls.push({ system }); return 'answer'; },
+    send: async (_ch, text) => { sent.push(text); },
+    typing: () => {}, stopTyping: () => {}, log: () => {},
+    extractQuery: async () => 'france capital 2026',
+    search: async () => [], // no results
+  });
+  await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.system, 'base system'); // no search context
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0], 'answer');
+});

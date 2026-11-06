@@ -1,6 +1,16 @@
 import type { Config } from './config.ts';
 
 type LlmConfig = Pick<Config, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
+// Dedicated config for the search-query extraction call. Same endpoint as the
+// main LLM, but a different (cheaper) model and a much smaller budget.
+export type SearchLlmConfig = {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  timeoutMs: number;
+  maxTokens: number;
+  contextTokens: number;
+};
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 // Only expose fixed diagnostics; upstream bodies and arbitrary error messages can contain private data.
@@ -35,22 +45,17 @@ function isRetryable(error: unknown): boolean {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export async function complete(
-  config: LlmConfig,
+// Shared OpenAI-compatible Chat Completions call. `complete` (final answer,
+// with retries) and `completeSearchQuery` (query extraction, no retries) both
+// go through here so request shape, timeouts, budget and abort handling stay
+// identical. Returns the trimmed `choices[0].message.content` string.
+async function callChatCompletions(
+  config: Pick<LlmConfig, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens'>,
   system: string,
-  conversation: ChatMessage[],
-  shutdown?: AbortSignal,
-  retries = 1,
+  messages: ChatMessage[],
+  shutdown: AbortSignal | undefined,
+  retries: number,
 ): Promise<string> {
-  // Byte count is a conservative input budget, not a model-specific token count.
-  // Reserve room for chat framing and the requested output without a tokenizer dependency.
-  const messages = conversation.slice();
-  const inputBytes = () => Buffer.byteLength(system, 'utf8') +
-    messages.reduce((sum, message) => sum + Buffer.byteLength(message.content, 'utf8') + 32, 0);
-  while (messages.length > 1 && inputBytes() + config.maxTokens + 256 > config.contextTokens) messages.shift();
-  if (!messages.length || inputBytes() + config.maxTokens + 256 > config.contextTokens) {
-    throw new Error('Input exceeds conservative context budget');
-  }
   const attempts = retries + 1;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -102,4 +107,46 @@ export async function complete(
     }
   }
   throw lastError;
+}
+
+export async function complete(
+  config: LlmConfig,
+  system: string,
+  conversation: ChatMessage[],
+  shutdown?: AbortSignal,
+  retries = 1,
+): Promise<string> {
+  // Byte count is a conservative input budget, not a model-specific token count.
+  // Reserve room for chat framing and the requested output without a tokenizer dependency.
+  const messages = conversation.slice();
+  const inputBytes = () => Buffer.byteLength(system, 'utf8') +
+    messages.reduce((sum, message) => sum + Buffer.byteLength(message.content, 'utf8') + 32, 0);
+  while (messages.length > 1 && inputBytes() + config.maxTokens + 256 > config.contextTokens) messages.shift();
+  if (!messages.length || inputBytes() + config.maxTokens + 256 > config.contextTokens) {
+    throw new Error('Input exceeds conservative context budget');
+  }
+  return callChatCompletions(config, system, messages, shutdown, retries);
+}
+
+// Query extraction for web search. Unlike `complete` it:
+//  - applies the context budget to the *extraction* budget (small),
+//  - never retries (a failed extraction just means "no search" — the final
+//    answer does not depend on it, so waiting for a transient retry is not
+//    worth the added latency),
+//  - returns the raw trimmed model output (the caller parses it; the model is
+//    asked for a single line, not JSON, so there is nothing to validate here).
+export async function completeSearchQuery(
+  config: SearchLlmConfig,
+  system: string,
+  conversation: ChatMessage[],
+  shutdown?: AbortSignal,
+): Promise<string> {
+  const messages = conversation.slice();
+  const inputBytes = () => Buffer.byteLength(system, 'utf8') +
+    messages.reduce((sum, message) => sum + Buffer.byteLength(message.content, 'utf8') + 32, 0);
+  while (messages.length > 1 && inputBytes() + config.maxTokens + 256 > config.contextTokens) messages.shift();
+  if (!messages.length || inputBytes() + config.maxTokens + 256 > config.contextTokens) {
+    throw new Error('Input exceeds conservative context budget');
+  }
+  return callChatCompletions(config, system, messages, shutdown, 0);
 }

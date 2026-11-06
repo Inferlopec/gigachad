@@ -145,13 +145,45 @@ Stop with Ctrl+C.
 ### Web search (optional)
 
 The bot can search the web via a self-hosted [SearXNG](https://docs.searxng.org/) instance.
-Search is **disabled** unless `SEARXNG_URL` is set in `.env`. The SearXNG
-container is started by `docker compose` regardless; the bot simply does not
-call it when `SEARXNG_URL` is empty.
+Search is **disabled** unless both `SEARXNG_URL` **and** `SEARCH_LLM_MODEL` are set in `.env`.
+The SearXNG container is started by `docker compose` regardless; the bot simply does not
+call it when either variable is empty.
 
-When enabled, the bot sends the user's question to SearXNG's JSON API before
-calling the LLM. Results are appended to the system prompt so the model can
-cite sources.
+When enabled, the search flow is:
+
+1. **Query extraction** — a dedicated LLM model (`SEARCH_LLM_MODEL`, separate from
+   `LLM_MODEL`) reads the user's message plus the last 4 messages of context and
+   produces a single focused search query (keywords, no question words). If the
+   message does not warrant a web lookup (greetings, thanks, clarifications,
+   trivial facts) the model answers `NOSEARCH` and the search is skipped entirely.
+   This is what makes search "only when needed" — the expensive SearXNG
+   round-trip only happens when the extraction model says so.
+2. **SearXNG lookup** — the extracted query is sent to SearXNG's JSON API.
+   Up to `SEARCH_MAX_RESULTS` results (default 5) are returned.
+3. **System prompt enrichment** — the results are appended to the system prompt
+   so the main LLM (`LLM_MODEL`) can cite sources. The main LLM is instructed
+   to rely on the results when present and to say so when they are irrelevant.
+
+The extraction call is **blocking**: the main LLM waits for it before being
+called. This is a deliberate trade-off — the answer always sees the search
+results (higher quality), at the cost of up to `SEARCH_LLM_TIMEOUT_MS`
+(default 8 s) + `SEARCH_TIMEOUT_MS` (default 10 s) of added latency before
+the LLM starts. In practice the extraction takes 2–3 s and SearXNG 1–3 s, so
+the typical added latency is 3–6 s.
+
+#### Why a separate model?
+
+The extraction task is tiny (one line of output, ≤ 100 tokens) and fast
+(≤ 8 s timeout). Giving it a dedicated model replica means:
+
+- It does **not** compete for the same inference slot as the final answer
+  (which can take up to 120 s).
+- It can use a much smaller context budget (8 192 tokens vs 131 000).
+- A failed or slow extraction degrades to "no search" without retrying,
+  keeping the total latency bounded.
+
+Set `SEARCH_LLM_MODEL` to one of your three `qwen3.8-27b-unleashed-{1,2,3}`
+replicas, and `LLM_MODEL` to a different one.
 
 #### Throttling
 
@@ -167,14 +199,17 @@ being overwhelmed:
 - **Cache:** identical (case-insensitive) queries are served from an
   in-memory cache for `SEARCH_CACHE_TTL_MS` (default 300 000 ms). Empty
   results are not cached.
-- **Minimum length:** messages shorter than 15 characters are not searched.
-- **Graceful degradation:** if SearXNG is unreachable, the bot simply
-  answers without web context.
+- **Minimum length:** messages shorter than 15 characters skip the extraction
+  call entirely (no LLM round-trip).
+- **Graceful degradation:** if the extraction model or SearXNG is unreachable,
+  the bot simply answers without web context.
 
 #### Enable search
 
 1. Set `SEARXNG_URL=http://searxng:8080` in `.env`.
-2. `docker compose up -d --force-recreate gigachad`
+2. Set `SEARCH_LLM_MODEL=qwen3.8-27b-unleashed-2` (or another replica,
+   different from `LLM_MODEL`).
+3. `docker compose up -d --force-recreate gigachad`
 
 That's it — the SearXNG container is already defined in `compose.yaml` and
 started alongside the bot. Verify it is healthy:
@@ -216,20 +251,22 @@ line in `compose.yaml` (e.g. `docker.io/searxng/searxng:2026.11.5`).
 
 ```
 src/
-  config.ts    # env loading and validation
-  handler.ts   # mention matching, dedup, reply routing
-  llm.ts       # OpenAI-compatible API client
-  search.ts    # SearXNG client with rate limiting, circuit breaker, cache
-  index.ts     # entry point, SDK wiring
+  config.ts      # env loading and validation
+  handler.ts     # mention matching, dedup, reply routing
+  llm.ts         # OpenAI-compatible API client (complete + completeSearchQuery)
+  search.ts      # SearXNG client with rate limiting, circuit breaker, cache
+  searchQuery.ts # query extraction via dedicated LLM model
+  index.ts       # entry point, SDK wiring
 prompts/
-  system.md    # system prompt (hot-reloaded)
+  system.md      # system prompt (hot-reloaded)
 searxng-settings/
-  settings.yml # SearXNG configuration (JSON format enabled)
+  settings.yml   # SearXNG configuration (JSON format enabled)
 test/
   handler.test.ts
   identity.test.ts
   llm.test.ts
   search.test.ts
+  searchQuery.ts
 ```
 
 ### Notes

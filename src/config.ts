@@ -31,13 +31,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     maxTokens: integer(env, 'LLM_MAX_TOKENS'),
     timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
     searxngUrl: env.SEARXNG_URL?.trim() || undefined,
-    searchTimeoutMs: integer(env, 'SEARCH_TIMEOUT_MS', 15_000),
-    searchMaxResults: integer(env, 'SEARCH_MAX_RESULTS', 3),
+    // Dedicated model for extracting the web-search query from the user's
+    // message. Kept separate from LLM_MODEL so the extraction call (small,
+    // fast) does not compete for the same inference slot as the final answer.
+    searchLlmModel: env.SEARCH_LLM_MODEL?.trim() || undefined,
+    // Extraction is a tiny single-line task: short output budget and a short
+    // timeout so a stalled extraction degrades to "no search" quickly.
+    searchLlmTimeoutMs: integer(env, 'SEARCH_LLM_TIMEOUT_MS', 8_000),
+    searchLlmMaxTokens: integer(env, 'SEARCH_LLM_MAX_TOKENS', 100),
+    searchLlmContextTokens: integer(env, 'SEARCH_LLM_CONTEXT_TOKENS', 8_192),
+    searchTimeoutMs: integer(env, 'SEARCH_TIMEOUT_MS', 10_000),
+    searchMaxResults: integer(env, 'SEARCH_MAX_RESULTS', 5),
     searchRateLimit: integer(env, 'SEARCH_RATE_LIMIT', 5),
     searchRateWindowMs: integer(env, 'SEARCH_RATE_WINDOW_MS', 60_000),
     searchCacheTtlMs: integer(env, 'SEARCH_CACHE_TTL_MS', 300_000),
   };
   if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
+  if (config.searchLlmMaxTokens + 256 >= config.searchLlmContextTokens) {
+    throw new Error('SEARCH_LLM_MAX_TOKENS must leave room for input.');
+  }
+  if (config.searxngUrl && !config.searchLlmModel) {
+    throw new Error('SEARXNG_URL is set, so SEARCH_LLM_MODEL must be set too (search needs a model to extract the query).');
+  }
   return config;
 }
 

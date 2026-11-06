@@ -38,6 +38,10 @@ type Dependencies = {
   typing: (channelId: string) => void;
   stopTyping: (channelId: string) => void;
   log: (event: string) => void;
+  // Extract a web-search query from the message + recent context. Returns
+  // null when no search is warranted. Optional so search stays disabled when
+  // neither this nor `search` is wired (e.g. SEARXNG_URL unset).
+  extractQuery?: (text: string, history: ChatMessage[]) => Promise<string | null>;
   search?: (query: string) => Promise<SearchResult[]>;
 };
 
@@ -95,7 +99,7 @@ export function createHandler(deps: Dependencies) {
       const system = await readFile(deps.promptPath, 'utf8');
       if (!system.trim()) throw new Error('Empty system prompt');
 
-      const searchContext = await maybeSearch(user || '', deps);
+      const searchContext = await maybeSearch(user || '', conversation, deps);
 
       stage = 'LLM request';
       const fullSystem = searchContext ? system + '\n\n' + searchContext : system;
@@ -114,16 +118,30 @@ export function createHandler(deps: Dependencies) {
   };
 }
 
-// Search the web for long-enough questions. Short greetings and thanks are
-// not worth a search round-trip. Failures are logged, never propagated.
+// Run web search before the final answer (blocking). The flow is:
+//   1. extractSearchQuery (cheap dedicated model) decides whether a search is
+//      needed at all and produces a focused query from the message + context.
+//   2. searchWeb hits SearXNG with that query (rate-limited, cached, breaker).
+// Either step returning "nothing" simply means the answer is produced without
+// web context — search must never break the reply. Short greetings and thanks
+// are filtered inside extractSearchQuery (it skips the LLM call entirely).
 async function maybeSearch(
   text: string,
-  deps: Pick<Dependencies, 'search' | 'log'>,
+  conversation: ChatMessage[],
+  deps: Pick<Dependencies, 'extractQuery' | 'search' | 'log'>,
 ): Promise<string> {
-  if (!deps.search || text.length < 15) return '';
+  if (!deps.extractQuery || !deps.search) return '';
+  let query: string | null;
   try {
-    const results = await deps.search(text);
-    if (results.length) return formatSearchResults(text, results);
+    query = await deps.extractQuery(text, conversation);
+  } catch (error) {
+    deps.log(`Search query extraction failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
+    return '';
+  }
+  if (!query) return '';
+  try {
+    const results = await deps.search(query);
+    if (results.length) return formatSearchResults(query, results);
   } catch (error) {
     deps.log(`Search failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
   }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import test from 'node:test';
-import { complete, describeLlmFailure } from '../src/llm.ts';
+import { complete, completeSearchQuery, describeLlmFailure } from '../src/llm.ts';
 import { loadConfig } from '../src/config.ts';
 
 async function server(t: test.TestContext, handler: (req: IncomingMessage, res: ServerResponse) => void) {
@@ -188,4 +188,112 @@ test('configuration requires channel, credentials and valid budgets', () => {
   assert.throws(() => loadConfig({ ...env, LLM_MAX_TOKENS: '131000' }), /leave room/);
   assert.throws(() => loadConfig({ ...env, LLM_TIMEOUT_MS: '-1' }), /positive integer/);
   assert.throws(() => loadConfig({ ...env, LLM_TIMEOUT_MS: '' }), /LLM_TIMEOUT_MS/);
+});
+
+test('completeSearchQuery sends configured request with small budget and no retry', async (t) => {
+  let payload: { model: string; max_tokens: number; chat_template_kwargs: { enable_thinking: boolean } } | undefined;
+  const baseUrl = await server(t, async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    payload = JSON.parse(Buffer.concat(chunks).toString());
+    res.end(JSON.stringify({ choices: [{ message: { content: '  iphone 16 weight  ' } }] }));
+  });
+  const searchConfig = {
+    baseUrl, apiKey: 'search-key', model: 'qwen3.8-27b-unleashed-2',
+    timeoutMs: 2000, maxTokens: 100, contextTokens: 8192,
+  };
+  const result = await completeSearchQuery(searchConfig, 'extract system', [{ role: 'user', content: 'how much does iphone 16 weigh?' }]);
+  assert.equal(result, 'iphone 16 weight');
+  assert.equal(payload?.model, 'qwen3.8-27b-unleashed-2');
+  assert.equal(payload?.max_tokens, 100);
+  assert.deepEqual(payload?.chat_template_kwargs, { enable_thinking: false });
+});
+
+test('completeSearchQuery does not retry on HTTP 500', async (t) => {
+  let requests = 0;
+  const baseUrl = await server(t, (req, res) => {
+    requests++;
+    res.writeHead(500);
+    res.end('server error');
+  });
+  const searchConfig = {
+    baseUrl, apiKey: 'key', model: 'm',
+    timeoutMs: 2000, maxTokens: 100, contextTokens: 8192,
+  };
+  await assert.rejects(
+    completeSearchQuery(searchConfig, 's', [{ role: 'user', content: 'u' }]),
+    /HTTP 500/,
+  );
+  assert.equal(requests, 1); // exactly one attempt, no retry
+});
+
+test('completeSearchQuery rejects on timeout without retry', async (t) => {
+  let requests = 0;
+  const http = createServer((req) => {
+    requests++;
+    req.socket.destroy(); // simulate timeout by dropping the connection
+  });
+  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>((resolve, reject) => {
+    http.closeAllConnections();
+    http.close((error) => error ? reject(error) : resolve());
+  }));
+  const address = http.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}/v1`;
+  const searchConfig = {
+    baseUrl, apiKey: 'key', model: 'm',
+    timeoutMs: 100, maxTokens: 100, contextTokens: 8192,
+  };
+  await assert.rejects(
+    completeSearchQuery(searchConfig, 's', [{ role: 'user', content: 'u' }]),
+  );
+  assert.equal(requests, 1); // no retry on timeout
+});
+
+test('completeSearchQuery respects shutdown abort', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const searchConfig = {
+    baseUrl: '', apiKey: 'key', model: 'm',
+    timeoutMs: 2000, maxTokens: 100, contextTokens: 8192,
+  };
+  await assert.rejects(
+    completeSearchQuery(searchConfig, 's', [{ role: 'user', content: 'u' }], controller.signal),
+    /aborted/,
+  );
+});
+
+test('configuration enforces search-LLM pairing and budget', () => {
+  const env = {
+    GRYT_HOST: 'https://chat.inferlo.xyz', GRYT_ALLOWED_CHANNEL_ID: 'channel-1',
+    GRYT_IDENTITY_PATH: './data/identity.json', LLM_BASE_URL: 'https://example.com/v1',
+    LLM_MODEL: 'qwen3.8-27b-unleashed-1', LLM_API_KEY: 'test', LLM_CONTEXT_TOKENS: '131000',
+    LLM_MAX_TOKENS: '1024', LLM_TIMEOUT_MS: '60000',
+  };
+  // SEARXNG_URL set without SEARCH_LLM_MODEL must throw.
+  assert.throws(
+    () => loadConfig({ ...env, SEARXNG_URL: 'http://searxng:8080' }),
+    /SEARCH_LLM_MODEL/,
+  );
+  // Both set: ok.
+  const ok = loadConfig({ ...env, SEARXNG_URL: 'http://searxng:8080', SEARCH_LLM_MODEL: 'qwen3.8-27b-unleashed-2' });
+  assert.equal(ok.searchLlmModel, 'qwen3.8-27b-unleashed-2');
+  assert.equal(ok.searchLlmTimeoutMs, 8000);
+  assert.equal(ok.searchLlmMaxTokens, 100);
+  assert.equal(ok.searchLlmContextTokens, 8192);
+  assert.equal(ok.searchTimeoutMs, 10000);
+  assert.equal(ok.searchMaxResults, 5);
+  // SEARXNG_URL empty: searchLlmModel may be absent.
+  const noSearch = loadConfig(env);
+  assert.equal(noSearch.searxngUrl, undefined);
+  assert.equal(noSearch.searchLlmModel, undefined);
+  // SEARCH_LLM_MAX_TOKENS too large for its context must throw.
+  assert.throws(
+    () => loadConfig({
+      ...env, SEARXNG_URL: 'http://searxng:8080', SEARCH_LLM_MODEL: 'm',
+      SEARCH_LLM_MAX_TOKENS: '999999', SEARCH_LLM_CONTEXT_TOKENS: '8192',
+    }),
+    /SEARCH_LLM_MAX_TOKENS/,
+  );
 });

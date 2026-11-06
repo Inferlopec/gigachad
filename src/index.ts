@@ -4,6 +4,7 @@ import { GrytBot, loadIdentity } from '@gryt/bot';
 import { loadConfig } from './config.ts';
 import { createHandler } from './handler.ts';
 import { complete } from './llm.ts';
+import { extractSearchQuery } from './searchQuery.ts';
 import { searchWeb, createSearchState } from './search.ts';
 
 const log = (msg: string) => console.log(`[${new Date().toISOString()}] [gigachad] ${msg}`);
@@ -46,8 +47,24 @@ async function main() {
     typing: (channel) => bot.typing(channel),
     stopTyping: (channel) => bot.stopTyping(channel),
     log: logErr,
-    ...(searchState
-      ? { search: (query: string) => searchWeb(query, config, searchState, shutdown.signal) }
+    ...(searchState && config.searchLlmModel
+      ? {
+        // Web search is enabled only when both SearXNG and a dedicated
+        // extraction model are configured (loadConfig enforces this pairing).
+        extractQuery: (text, history) => extractSearchQuery(text, history, {
+          config: {
+            baseUrl: config.baseUrl,
+            apiKey: config.apiKey,
+            model: config.searchLlmModel!,
+            timeoutMs: config.searchLlmTimeoutMs,
+            maxTokens: config.searchLlmMaxTokens,
+            contextTokens: config.searchLlmContextTokens,
+          },
+          log: logErr,
+          shutdown: shutdown.signal,
+        }),
+        search: (query: string) => searchWeb(query, config, searchState, shutdown.signal),
+      }
       : {}),
   });
   bot.on('message', (message) => { void handler(message).catch(() => logErr('Message handler failed.')); });
