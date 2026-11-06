@@ -30,6 +30,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     contextTokens: integer(env, 'LLM_CONTEXT_TOKENS'),
     maxTokens: integer(env, 'LLM_MAX_TOKENS'),
     timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
+    searxngUrl: env.SEARXNG_URL?.trim() || undefined,
+    searchTimeoutMs: integer(env, 'SEARCH_TIMEOUT_MS', 15_000),
+    searchMaxResults: integer(env, 'SEARCH_MAX_RESULTS', 3),
+    searchRateLimit: integer(env, 'SEARCH_RATE_LIMIT', 5),
+    searchRateWindowMs: integer(env, 'SEARCH_RATE_WINDOW_MS', 60_000),
+    searchCacheTtlMs: integer(env, 'SEARCH_CACHE_TTL_MS', 300_000),
   };
   if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
   return config;

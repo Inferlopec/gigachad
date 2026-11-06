@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import type { Message } from '@gryt/bot';
 import type { ChatMessage } from './llm.ts';
 import { describeLlmFailure } from './llm.ts';
+import type { SearchResult } from './search.ts';
+import { formatSearchResults } from './search.ts';
 
 // Skip fenced/inline code, escapes, images and ordinary links before looking for a mention.
 const TOKENS = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\1[^\n]*(?:\n|$)|$)|(`+)[^\n]*?\2|\\[\s\S]|https?:\/\/\S+|!?\[([^\]\n]*)\]\(([^)\s]*)\)/g;
@@ -36,6 +38,7 @@ type Dependencies = {
   typing: (channelId: string) => void;
   stopTyping: (channelId: string) => void;
   log: (event: string) => void;
+  search?: (query: string) => Promise<SearchResult[]>;
 };
 
 export function createHandler(deps: Dependencies) {
@@ -91,8 +94,12 @@ export function createHandler(deps: Dependencies) {
     try {
       const system = await readFile(deps.promptPath, 'utf8');
       if (!system.trim()) throw new Error('Empty system prompt');
+
+      const searchContext = await maybeSearch(user || '', deps);
+
       stage = 'LLM request';
-      const answer = await deps.complete(system, conversation);
+      const fullSystem = searchContext ? system + '\n\n' + searchContext : system;
+      const answer = await deps.complete(fullSystem, conversation);
       await send(answer);
     } catch (error) {
       deps.log(stage === 'LLM request'
@@ -105,4 +112,20 @@ export function createHandler(deps: Dependencies) {
       deps.stopTyping(message.conversationId);
     }
   };
+}
+
+// Search the web for long-enough questions. Short greetings and thanks are
+// not worth a search round-trip. Failures are logged, never propagated.
+async function maybeSearch(
+  text: string,
+  deps: Pick<Dependencies, 'search' | 'log'>,
+): Promise<string> {
+  if (!deps.search || text.length < 15) return '';
+  try {
+    const results = await deps.search(text);
+    if (results.length) return formatSearchResults(text, results);
+  } catch (error) {
+    deps.log(`Search failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
+  }
+  return '';
 }

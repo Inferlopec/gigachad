@@ -1,5 +1,28 @@
 name: gryt-gigachad
 services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng-core
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      SEARXNG_LIMITER: "false"
+    volumes:
+      - ./searxng-settings:/etc/searxng:ro
+      - searxng-cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/search?q=health&format=json', timeout=5).status == 200 else 1)\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
   gigachad:
     build: .
     restart: unless-stopped
@@ -10,10 +33,15 @@ services:
     volumes:
       - identity:/data
       - ./prompts:/app/prompts:ro
+    depends_on:
+      searxng:
+        condition: service_healthy
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: '3'
+
 volumes:
   identity:
+  searxng-cache:

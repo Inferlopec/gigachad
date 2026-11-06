@@ -4,6 +4,7 @@ import { GrytBot, loadIdentity } from '@gryt/bot';
 import { loadConfig } from './config.ts';
 import { createHandler } from './handler.ts';
 import { complete } from './llm.ts';
+import { searchWeb, createSearchState } from './search.ts';
 
 const log = (msg: string) => console.log(`[${new Date().toISOString()}] [gigachad] ${msg}`);
 const logErr = (msg: string) => console.error(`[${new Date().toISOString()}] [gigachad] ${msg}`);
@@ -34,6 +35,7 @@ async function main() {
   let joined = false;
   const available = () => joined && !shutdown.signal.aborted &&
     bot.permissions.includes('read_messages') && bot.permissions.includes('send_messages');
+  const searchState = config.searxngUrl ? createSearchState(config) : null;
   const handler = createHandler({
     channelId: config.channelId,
     selfId: () => selfId,
@@ -44,6 +46,9 @@ async function main() {
     typing: (channel) => bot.typing(channel),
     stopTyping: (channel) => bot.stopTyping(channel),
     log: logErr,
+    ...(searchState
+      ? { search: (query: string) => searchWeb(query, config, searchState, shutdown.signal) }
+      : {}),
   });
   bot.on('message', (message) => { void handler(message).catch(() => logErr('Message handler failed.')); });
   bot.on('error', (err) => {

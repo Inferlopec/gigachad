@@ -6,6 +6,7 @@ A minimal mention-only AI bot for `https://chat.inferlo.xyz`. Built with `@gryt/
 - Each request includes the 5 most recent messages from the configured channel (including the trigger)
 - One LLM request at a time; concurrent mentions are silently dropped (typing indicator shows the bot is busy)
 - Transient LLM failures (5xx, timeout, network) are retried once after 1s before failing
+- Optional web search via self-hosted SearXNG (enabled by setting `SEARXNG_URL`)
 
 ## User Guide
 
@@ -39,6 +40,14 @@ docker compose up -d --build
 docker compose logs -f --tail=100 gigachad
 ```
 
+This starts two containers: **gigachad** (the bot) and **searxng** (web search
+backend). The bot waits for SearXNG to become healthy before starting
+(`depends_on: service_healthy`), so a fresh install takes ~30–60 s longer on
+first run while the SearXNG image is pulled and initialized.
+
+To enable web search, set `SEARXNG_URL=http://searxng:8080` in `.env`
+(see [Web search](#web-search-optional)). Leave it empty to run without search.
+
 ### Register the bot
 
 1. Start the bot with valid configuration. It creates its identity and waits for approval.
@@ -59,7 +68,21 @@ docker compose up -d --build
 docker compose logs --tail=100 gigachad
 ```
 
-The `.env` file and identity volume survive updates. In-memory conversation history resets when the container restarts. Save any custom prompt edits before pulling and check `.env.example` for new settings. To apply only `.env` changes: `docker compose up -d --force-recreate`.
+This rebuilds the **gigachad** image and restarts the bot. The **searxng**
+container is only recreated if `compose.yaml` or the SearXNG image changed;
+otherwise Docker reuses the running container. To force-pull the latest
+SearXNG image:
+
+```sh
+docker compose pull searxng
+docker compose up -d searxng
+```
+
+The `.env` file, identity volume, and SearXNG cache volume survive updates.
+In-memory conversation history and the search cache reset when the gigachad
+container restarts. Save any custom prompt edits before pulling and check
+`.env.example` for new settings. To apply only `.env` changes:
+`docker compose up -d --force-recreate gigachad`.
 
 If Git reports **dubious ownership** after an earlier installation under another account, run this once as the account that will manage the bot, then retry the update:
 
@@ -119,6 +142,76 @@ npm start           # run compiled output
 
 Stop with Ctrl+C.
 
+### Web search (optional)
+
+The bot can search the web via a self-hosted [SearXNG](https://docs.searxng.org/) instance.
+Search is **disabled** unless `SEARXNG_URL` is set in `.env`. The SearXNG
+container is started by `docker compose` regardless; the bot simply does not
+call it when `SEARXNG_URL` is empty.
+
+When enabled, the bot sends the user's question to SearXNG's JSON API before
+calling the LLM. Results are appended to the system prompt so the model can
+cite sources.
+
+#### Throttling
+
+The bot protects the SearXNG instance (and upstream search engines) from
+being overwhelmed:
+
+- **Rate limit:** at most `SEARCH_RATE_LIMIT` (default 5) SearXNG requests
+  per `SEARCH_RATE_WINDOW_MS` (default 60 000 ms) window.
+- **Circuit breaker:** 3 consecutive failures open the breaker for 60 s;
+  during that time the bot answers without search. After the cooldown the
+  failure count resets, so a single transient failure does not re-open the
+  breaker.
+- **Cache:** identical (case-insensitive) queries are served from an
+  in-memory cache for `SEARCH_CACHE_TTL_MS` (default 300 000 ms). Empty
+  results are not cached.
+- **Minimum length:** messages shorter than 15 characters are not searched.
+- **Graceful degradation:** if SearXNG is unreachable, the bot simply
+  answers without web context.
+
+#### Enable search
+
+1. Set `SEARXNG_URL=http://searxng:8080` in `.env`.
+2. `docker compose up -d --force-recreate gigachad`
+
+That's it — the SearXNG container is already defined in `compose.yaml` and
+started alongside the bot. Verify it is healthy:
+
+```sh
+docker compose ps
+# searxng should show "healthy"
+docker compose logs --tail=20 searxng
+```
+
+#### Disable search
+
+1. Set `SEARXNG_URL=` (empty) in `.env`.
+2. `docker compose up -d --force-recreate gigachad`
+
+The SearXNG container keeps running (it is cheap to keep up and can be
+re-enabled instantly), but the bot no longer calls it. To stop the container
+entirely: `docker compose stop searxng`.
+
+#### Update SearXNG
+
+The SearXNG image is pinned to `latest` in `compose.yaml`. To update:
+
+```sh
+docker compose pull searxng
+docker compose up -d searxng
+docker compose ps   # wait for "healthy"
+```
+
+The SearXNG cache volume (`searxng-cache`) survives the update. If a SearXNG
+upgrade changes the JSON API (rare, but possible), the bot will log search
+failures and fall back to no-search answers; check `docker compose logs
+--tail=50 searxng` for the cause.
+
+To pin a specific SearXNG version instead of `latest`, edit the `image:`
+line in `compose.yaml` (e.g. `docker.io/searxng/searxng:2026.11.5`).
+
 ### Project layout
 
 ```
@@ -126,13 +219,17 @@ src/
   config.ts    # env loading and validation
   handler.ts   # mention matching, dedup, reply routing
   llm.ts       # OpenAI-compatible API client
+  search.ts    # SearXNG client with rate limiting, circuit breaker, cache
   index.ts     # entry point, SDK wiring
 prompts/
   system.md    # system prompt (hot-reloaded)
+searxng-settings/
+  settings.yml # SearXNG configuration (JSON format enabled)
 test/
   handler.test.ts
   identity.test.ts
   llm.test.ts
+  search.test.ts
 ```
 
 ### Notes
