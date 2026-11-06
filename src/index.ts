@@ -51,7 +51,7 @@ async function main() {
       ? {
         // Web search is enabled only when both SearXNG and a dedicated
         // extraction model are configured (loadConfig enforces this pairing).
-        extractQuery: (text, history) => extractSearchQuery(text, history, {
+        extractQuery: (conversation) => extractSearchQuery(conversation, {
           config: {
             baseUrl: config.baseUrl,
             apiKey: config.apiKey,

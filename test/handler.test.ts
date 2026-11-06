@@ -246,8 +246,10 @@ test('maybeSearch: extractQuery returns query + search returns results → searc
     channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
     complete: async (system) => { calls.push({ system }); return 'answer'; },
     send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
-    extractQuery: async (text) => {
-      assert.ok(text.length >= 15, 'extractQuery should receive the user text');
+    extractQuery: async (conversation) => {
+      // The last message is the current one, nick-prefixed by the handler.
+      const current = conversation[conversation.length - 1]!;
+      assert.ok(current.content.startsWith('User: '), 'current message should be nick-prefixed');
       return 'france capital 2026';
     },
     search: async (query) => {
@@ -266,6 +268,44 @@ test('maybeSearch: extractQuery returns query + search returns results → searc
   assert.ok(calls[0]?.system.includes('Веб-поиск по запросу «france capital 2026»'));
   assert.ok(calls[0]?.system.includes('Paris'));
   assert.ok(calls[0]?.system.includes('https://example.com/paris'));
+});
+
+test('maybeSearch: sender nickname is stripped from the search query', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-nickstrip-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const promptPath = join(dir, 'system.md');
+  await writeFile(promptPath, 'base system');
+  const searchQueries: string[] = [];
+  const handler = createHandler({
+    channelId: 'allowed', selfId: () => 'bot-123', available: () => true, promptPath,
+    complete: async () => 'answer',
+    send: async () => {}, typing: () => {}, stopTyping: () => {}, log: () => {},
+    // Simulate the extraction model folding the sender nickname into the
+    // query; the deterministic stripSenderNicknames pass must remove it.
+    extractQuery: async (conversation) => {
+      const { stripSenderNicknames, collectNicknames } = await import('../src/searchQuery.ts');
+      const simulatedLlmOutput = 'Inferlo path of exile 2 dev stream schedule';
+      return stripSenderNicknames(simulatedLlmOutput, collectNicknames(conversation));
+    },
+    search: async (query) => {
+      searchQueries.push(query);
+      return [
+        { title: 'PoE2 Stream', url: 'https://example.com/stream', content: 'Stream info.', engine: 'bing', score: 1 },
+      ];
+    },
+  });
+  // The message is from sender "Inferlo" (senderNickname in the Message).
+  await handler(message({
+    text: `${mention} when is the PoE2 dev stream today?`,
+    senderNickname: 'Inferlo',
+    senderServerUserId: 'user-inferlo',
+  }));
+  assert.equal(searchQueries.length, 1);
+  // The nickname "Inferlo" must NOT appear in the SearXNG query.
+  assert.ok(!searchQueries[0]!.toLowerCase().includes('inferlo'),
+    `nickname leaked into query: ${searchQueries[0]}`);
+  assert.ok(searchQueries[0]!.includes('path of exile 2'),
+    `topic lost after strip: ${searchQueries[0]}`);
 });
 
 test('maybeSearch: extractQuery throws → no SearXNG call, no search context, answer still sent', async (t) => {

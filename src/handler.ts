@@ -38,10 +38,13 @@ type Dependencies = {
   typing: (channelId: string) => void;
   stopTyping: (channelId: string) => void;
   log: (event: string) => void;
-  // Extract a web-search query from the message + recent context. Returns
-  // null when no search is warranted. Optional so search stays disabled when
-  // neither this nor `search` is wired (e.g. SEARXNG_URL unset).
-  extractQuery?: (text: string, history: ChatMessage[]) => Promise<string | null>;
+  // Extract a web-search query from the recent conversation (which includes
+  // the current message, nick-prefixed by the handler). Returns null when no
+  // search is warranted. Sender nicknames are stripped from the query inside
+  // the implementation so the asker's name does not leak into SearXNG.
+  // Optional so search stays disabled when neither this nor `search` is
+  // wired (e.g. SEARXNG_URL unset).
+  extractQuery?: (conversation: ChatMessage[]) => Promise<string | null>;
   search?: (query: string) => Promise<SearchResult[]>;
 };
 
@@ -99,7 +102,7 @@ export function createHandler(deps: Dependencies) {
       const system = await readFile(deps.promptPath, 'utf8');
       if (!system.trim()) throw new Error('Empty system prompt');
 
-      const searchContext = await maybeSearch(user || '', conversation, deps);
+      const searchContext = await maybeSearch(conversation, deps);
 
       stage = 'LLM request';
       const fullSystem = searchContext ? system + '\n\n' + searchContext : system;
@@ -119,21 +122,23 @@ export function createHandler(deps: Dependencies) {
 }
 
 // Run web search before the final answer (blocking). The flow is:
-//   1. extractSearchQuery (cheap dedicated model) decides whether a search is
-//      needed at all and produces a focused query from the message + context.
+//   1. extractQuery (cheap dedicated model) decides whether a search is
+//      needed at all and produces a focused query from the recent
+//      conversation (last 4 messages + current, all nick-prefixed).
+//      Sender nicknames are stripped from the query inside the
+//      implementation so the asker's name does not leak into SearXNG.
 //   2. searchWeb hits SearXNG with that query (rate-limited, cached, breaker).
 // Either step returning "nothing" simply means the answer is produced without
 // web context — search must never break the reply. Short greetings and thanks
-// are filtered inside extractSearchQuery (it skips the LLM call entirely).
+// are filtered inside extractQuery (it skips the LLM call entirely).
 async function maybeSearch(
-  text: string,
   conversation: ChatMessage[],
   deps: Pick<Dependencies, 'extractQuery' | 'search' | 'log'>,
 ): Promise<string> {
   if (!deps.extractQuery || !deps.search) return '';
   let query: string | null;
   try {
-    query = await deps.extractQuery(text, conversation);
+    query = await deps.extractQuery(conversation);
   } catch (error) {
     deps.log(`Search query extraction failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
     return '';
