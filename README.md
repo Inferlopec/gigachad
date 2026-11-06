@@ -116,6 +116,14 @@ Store backups outside the repository.
 
 Edit `prompts/system.md` directly. The bot reads it for every request — no restart needed. Compose mounts the directory read-only so editor saves remain visible. Missing or empty prompts fail the request with a brief error.
 
+`prompts/system.md` is **not committed** to git (see `.gitignore`); the repo ships a template, `prompts/system.md.example`. On a fresh install, copy the template to create your local prompt:
+
+```sh
+cp prompts/system.md.example prompts/system.md
+```
+
+Your local edits stay out of version control, so `git pull --ff-only` during updates will never touch or conflict with your customized prompt.
+
 ## Developer Guide
 
 ### Setup
@@ -258,7 +266,8 @@ src/
   searchQuery.ts # query extraction via dedicated LLM model
   index.ts       # entry point, SDK wiring
 prompts/
-  system.md      # system prompt (hot-reloaded)
+  system.md.example # template for the system prompt (committed)
+  system.md         # active system prompt (local only, git-ignored, hot-reloaded)
 searxng-settings/
   settings.yml   # SearXNG configuration (JSON format enabled)
 test/

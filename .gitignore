@@ -5,5 +5,8 @@ node_modules/
 dist/
 data/
 gryt-bot-identity.json
+# Local prompt overrides — see prompts/system.md.example in git
+prompts/*
+!prompts/*.md.example
 .tools/
 identity-backup*.tar.gz
