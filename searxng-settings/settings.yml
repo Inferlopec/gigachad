@@ -9,3 +9,11 @@ search:
     - json
   default_lang: "auto"
   safe_search: 0
+
+engines:
+  - name: duckduckgo
+    disabled: true
+  - name: duckduckgo news
+    disabled: true
+  - name: duckduckgo images
+    disabled: true
