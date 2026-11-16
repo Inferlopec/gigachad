@@ -43,7 +43,7 @@ type Dependencies = {
   // search is warranted. Sender nicknames are stripped from the query inside
   // the implementation so the asker's name does not leak into SearXNG.
   // Optional so search stays disabled when neither this nor `search` is
-  // wired (e.g. SEARXNG_URL unset).
+  // wired (e.g. SEARCH_ENABLED is false).
   extractQuery?: (conversation: ChatMessage[]) => Promise<string | null>;
   search?: (query: string) => Promise<SearchResult[]>;
 };

@@ -10,13 +10,16 @@ export type SearchResult = {
 
 export type SearchConfig = Pick<
   Config,
-  | 'searxngUrl'
   | 'searchTimeoutMs'
   | 'searchMaxResults'
   | 'searchRateLimit'
   | 'searchRateWindowMs'
   | 'searchCacheTtlMs'
 >;
+
+// Compose service discovery is an implementation detail. Search requests
+// always use this fixed internal endpoint; it is not a user configuration.
+export const SEARXNG_ENDPOINT = 'http://searxng:8080/search';
 
 export type SearchState = {
   limiter: RateLimiter;
@@ -139,9 +142,8 @@ export async function searchWeb(
   config: SearchConfig,
   state: SearchState,
   shutdown?: AbortSignal,
+  fetcher: typeof fetch = fetch,
 ): Promise<SearchResult[]> {
-  const url = config.searxngUrl;
-  if (!url) return [];
   if (shutdown?.aborted) return [];
   if (!state.breaker.isClosed()) return [];
 
@@ -158,7 +160,7 @@ export async function searchWeb(
     return cached?.results ?? [];
   }
 
-  const endpoint = new URL('/search', url);
+  const endpoint = new URL(SEARXNG_ENDPOINT);
   endpoint.searchParams.set('q', query);
   endpoint.searchParams.set('format', 'json');
 
@@ -167,7 +169,7 @@ export async function searchWeb(
 
   let response: Response;
   try {
-    response = await fetch(endpoint.href, { signal, redirect: 'error' });
+    response = await fetcher(endpoint.href, { signal, redirect: 'error' });
   } catch {
     state.breaker.recordFailure(now);
     return cached?.results ?? [];

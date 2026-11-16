@@ -28,8 +28,7 @@ export function createRuntime(config: Config, deps: Dependencies): Runtime {
   const gryt = deps.createGryt
     ? deps.createGryt(config, onMessage)
     : createGrytIntegration(config, { onMessage, log: deps.log, logError: deps.logError });
-  const searchState = config.searxngUrl ? createSearchState(config) : null;
-  const searchModel = config.searchLlmModel;
+  const searchState = config.searchEnabled ? createSearchState(config) : null;
   const handler = createHandler({
     channelId: config.channelId,
     selfId: gryt.selfId,
@@ -38,10 +37,10 @@ export function createRuntime(config: Config, deps: Dependencies): Runtime {
     complete: (system, messages) => (deps.complete ?? complete)(config, system, messages, shutdown.signal),
     send: gryt.send, typing: gryt.typing, stopTyping: gryt.stopTyping,
     log: deps.logError,
-    ...(searchState && searchModel ? {
+    ...(searchState ? {
       extractQuery: (conversation) => (deps.extractQuery ?? extractSearchQuery)(conversation, {
         config: {
-          baseUrl: config.baseUrl, apiKey: config.apiKey, model: searchModel,
+          baseUrl: config.searchLlmBaseUrl, apiKey: config.searchLlmApiKey, model: config.searchLlmModel,
           timeoutMs: config.searchLlmTimeoutMs, maxTokens: config.searchLlmMaxTokens,
           contextTokens: config.searchLlmContextTokens,
         },

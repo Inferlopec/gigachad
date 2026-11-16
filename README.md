@@ -6,7 +6,7 @@ A minimal mention-only AI bot for Gryt servers. Built with `@gryt/bot` and an Op
 - Each request includes the 5 most recent messages from the configured channel (including the trigger)
 - One LLM request at a time; concurrent mentions are silently dropped (typing indicator shows the bot is busy)
 - Transient LLM failures (5xx, timeout, network) are retried once after 1s before failing
-- Optional web search via self-hosted SearXNG (enabled by setting `SEARXNG_URL`)
+- Optional web search via the managed SearXNG service (`SEARCH_ENABLED=true`)
 
 ## User Guide
 
@@ -32,7 +32,7 @@ Edit `.env` and `prompts/system.md` before starting:
 - `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` — your OpenAI-compatible endpoint, model and API key
 - `LLM_CONTEXT_TOKENS` and `LLM_MAX_TOKENS` — limits supported by your model
 - `SYSTEM_PROMPT_PATH` — prompt file (default `prompts/system.md`); container paths must be inside the mounted prompt directory
-- Set both search settings as described below, or clear `SEARXNG_URL` for LLM-only replies
+- Search is disabled by default. Enable it with `SEARCH_ENABLED=true` and the Compose `search` profile.
 
 **Finding the channel ID:** In Gryt, right-click the target channel → **Copy channel mention**. Paste it into a text editor: `[#channel](channel:chat.example.com/CHANNEL_ID)`. Use only `CHANNEL_ID` (the part after the final `/`, without the closing `)`). If the link has no server host (`channel:CHANNEL_ID`), use the part after `channel:`.
 
@@ -43,13 +43,13 @@ docker compose up -d --build
 docker compose logs -f --tail=100 gigachad
 ```
 
-This starts two containers: **gigachad** (the bot) and **searxng** (web search
-backend). The bot waits for SearXNG to become healthy before starting
-(`depends_on: service_healthy`), so a fresh install takes ~30–60 s longer on
-first run while the SearXNG image is pulled and initialized.
+By default this starts only **gigachad**. Search is disabled and the bot has no
+startup dependency on SearXNG.
 
-To enable web search, set `SEARXNG_URL=http://searxng:8080` in `.env`
-(see [Web search](#web-search-optional)). Leave it empty to run without search.
+To enable web search, set `SEARCH_ENABLED=true` in `.env` and start the managed
+backend with `docker compose --profile search up -d --build`. The bot always
+uses SearXNG at the fixed internal address `http://searxng:8080`; this address
+is not a user setting. See [Web search](#web-search-optional).
 
 ### Register the bot
 
@@ -160,16 +160,17 @@ Stop with Ctrl+C.
 ### Web search (optional)
 
 The bot can search the web via a self-hosted [SearXNG](https://docs.searxng.org/) instance.
-Search is **disabled** unless both `SEARXNG_URL` **and** `SEARCH_LLM_MODEL` are set in `.env`.
-The SearXNG container is started by `docker compose` regardless. Clear
-`SEARXNG_URL` to disable search in the bot; setting a URL without
-`SEARCH_LLM_MODEL` is a configuration error.
+Search is **disabled by default**. Set `SEARCH_ENABLED=true` to enable it and
+start the optional Compose service with `docker compose --profile search up -d`.
+The bot always calls SearXNG at the fixed internal address
+`http://searxng:8080`; no search URL needs to be supplied. Search failure never
+blocks an LLM-only answer.
 
 When enabled, the search flow is:
 
-1. **Query extraction** — a dedicated LLM model (`SEARCH_LLM_MODEL`, separate from
-   `LLM_MODEL`) reads the user's message plus the last 4 messages of context and
-   produces a single focused search query (keywords, no question words). If the
+1. **Query extraction** — an LLM reads the user's message plus the last 4
+   messages of context and produces a single focused search query (keywords,
+   no question words). If the
    message does not warrant a web lookup (greetings, thanks, clarifications,
    trivial facts) the model answers `NOSEARCH` and the search is skipped entirely.
    This is what makes search "only when needed" — the expensive SearXNG
@@ -189,10 +190,12 @@ the typical added latency is 3–6 s.
 
 #### Choosing the extraction model
 
-`SEARCH_LLM_MODEL` selects a model at the same endpoint as `LLM_MODEL`. It may
-use the same model or another one supported by your endpoint. No dedicated
-replica or model family is required. Query extraction uses its own context,
-output and timeout budgets, and does not retry on failure.
+Query extraction inherits `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` by
+default. To use a separate OpenAI-compatible API, optionally set
+`SEARCH_LLM_BASE_URL`, `SEARCH_LLM_API_KEY` and `SEARCH_LLM_MODEL`; empty values
+inherit the main LLM settings. This also gives the future CLI fields for
+configuring the search model independently. Query extraction uses its own
+context, output and timeout budgets, and does not retry on failure.
 
 #### Throttling
 
@@ -215,12 +218,10 @@ being overwhelmed:
 
 #### Enable search
 
-1. Set `SEARXNG_URL=http://searxng:8080` in `.env`.
-2. Set `SEARCH_LLM_MODEL` to a model supported by your configured LLM endpoint.
-3. `docker compose up -d --force-recreate gigachad`
+1. Set `SEARCH_ENABLED=true` in `.env`.
+2. Run `docker compose --profile search up -d --build`.
 
-That's it — the SearXNG container is already defined in `compose.yaml` and
-started alongside the bot. Verify it is healthy:
+The Compose profile starts SearXNG alongside the bot. Verify it is healthy:
 
 ```sh
 docker compose ps
@@ -230,20 +231,17 @@ docker compose logs --tail=20 searxng
 
 #### Disable search
 
-1. Set `SEARXNG_URL=` (empty) in `.env`.
-2. `docker compose up -d --force-recreate gigachad`
-
-The SearXNG container keeps running (it is cheap to keep up and can be
-re-enabled instantly), but the bot no longer calls it. To stop the container
-entirely: `docker compose stop searxng`.
+1. Set `SEARCH_ENABLED=false` in `.env`.
+2. Run `docker compose --profile search stop searxng`.
+3. Run `docker compose up -d --build gigachad`.
 
 #### Update SearXNG
 
 The SearXNG image is pinned to `latest` in `compose.yaml`. To update:
 
 ```sh
-docker compose pull searxng
-docker compose up -d searxng
+docker compose --profile search pull searxng
+docker compose --profile search up -d searxng
 docker compose ps   # wait for "healthy"
 ```
 

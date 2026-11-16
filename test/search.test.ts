@@ -8,13 +8,13 @@ import {
   describeSearchFailure,
   formatSearchResults,
   normalizeQuery,
+  SEARXNG_ENDPOINT,
   searchWeb,
   type SearchConfig,
   type SearchResult,
 } from '../src/search.ts';
 
 const config: SearchConfig = {
-  searxngUrl: 'http://127.0.0.1:1',
   searchTimeoutMs: 2000,
   searchMaxResults: 3,
   searchRateLimit: 5,
@@ -37,6 +37,16 @@ async function searxngServer(t: test.TestContext, handler: (req: IncomingMessage
   const address = http.address();
   assert.ok(address && typeof address !== 'string');
   return `http://127.0.0.1:${address.port}`;
+}
+
+function testFetch(baseUrl: string): typeof fetch {
+  return (input, init) => {
+    const requested = new URL(input instanceof Request ? input.url : String(input));
+    assert.equal(requested.origin, 'http://searxng:8080');
+    assert.equal(requested.pathname, '/search');
+    const localUrl = new URL(`${requested.pathname}${requested.search}`, baseUrl);
+    return fetch(localUrl, init);
+  };
 }
 
 test('describeSearchFailure reports fixed diagnostics', () => {
@@ -71,13 +81,8 @@ test('formatSearchResults formats title, content and source URL', () => {
   assert.ok(text.includes('Используй эти результаты'));
 });
 
-test('searchWeb returns empty array when searxngUrl is empty', async () => {
-  const state = createSearchState({ ...config, searxngUrl: undefined });
-  const results = await searchWeb('test', { ...config, searxngUrl: undefined }, state);
-  assert.deepEqual(results, []);
-});
-
-test('searchWeb returns results from SearXNG JSON', async (t) => {
+test('searchWeb uses the fixed internal SearXNG endpoint and returns JSON results', async (t) => {
+  let requestedUrl = '';
   const baseUrl = await searxngServer(t, (_req, res) => {
     res.end(jsonResponse([
       { title: 'Result 1', url: 'https://r1.example', content: 'Content 1', engine: 'bing', score: 1 },
@@ -85,8 +90,15 @@ test('searchWeb returns results from SearXNG JSON', async (t) => {
       { title: 'Result 3', url: 'https://r3.example', content: 'Content 3', engine: 'ddg', score: 3 },
     ]));
   });
-  const state = createSearchState({ ...config, searxngUrl: baseUrl });
-  const results = await searchWeb('test query', { ...config, searxngUrl: baseUrl }, state);
+  const state = createSearchState(config);
+  const fetcher: typeof fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    requestedUrl = `${url.origin}${url.pathname}`;
+    assert.equal(url.origin, 'http://searxng:8080');
+    return testFetch(baseUrl)(input, init);
+  };
+  const results = await searchWeb('test query', config, state, undefined, fetcher);
+  assert.equal(requestedUrl, SEARXNG_ENDPOINT);
   assert.equal(results.length, 3);
   assert.equal(results[0]!.title, 'Result 1');
   assert.equal(results[0]!.url, 'https://r1.example');
@@ -103,9 +115,9 @@ test('searchWeb limits results to searchMaxResults', async (t) => {
       { title: 'D', url: 'https://d', content: 'd', engine: 'e', score: 4 },
     ]));
   });
-  const cfg = { ...config, searxngUrl: baseUrl, searchMaxResults: 2 };
+  const cfg = { ...config, searchMaxResults: 2 };
   const state = createSearchState(cfg);
-  const results = await searchWeb('test', cfg, state);
+  const results = await searchWeb('test', cfg, state, undefined, testFetch(baseUrl));
   assert.equal(results.length, 2);
 });
 
@@ -116,8 +128,8 @@ test('searchWeb truncates long content to ~300 chars', async (t) => {
       { title: 'Long', url: 'https://long', content: longContent, engine: 'e', score: 1 },
     ]));
   });
-  const state = createSearchState({ ...config, searxngUrl: baseUrl });
-  const results = await searchWeb('test', { ...config, searxngUrl: baseUrl }, state);
+  const state = createSearchState(config);
+  const results = await searchWeb('test', config, state, undefined, testFetch(baseUrl));
   assert.ok(results[0]!.content.length <= 301);
   assert.ok(results[0]!.content.endsWith('…'));
 });
@@ -130,9 +142,9 @@ test('searchWeb returns cached result on second identical call', async (t) => {
       { title: 'Cached', url: 'https://cached', content: 'c', engine: 'e', score: 1 },
     ]));
   });
-  const state = createSearchState({ ...config, searxngUrl: baseUrl });
-  await searchWeb('same query', { ...config, searxngUrl: baseUrl }, state);
-  await searchWeb('same query', { ...config, searxngUrl: baseUrl }, state);
+  const state = createSearchState(config);
+  await searchWeb('same query', config, state, undefined, testFetch(baseUrl));
+  await searchWeb('same query', config, state, undefined, testFetch(baseUrl));
   assert.equal(calls, 1);
 });
 
@@ -141,14 +153,18 @@ test('searchWeb returns empty array on SearXNG HTTP error', async (t) => {
     res.writeHead(503);
     res.end('unavailable');
   });
-  const state = createSearchState({ ...config, searxngUrl: baseUrl });
-  const results = await searchWeb('test', { ...config, searxngUrl: baseUrl }, state);
+  const state = createSearchState(config);
+  const results = await searchWeb('test', config, state, undefined, testFetch(baseUrl));
   assert.deepEqual(results, []);
 });
 
 test('searchWeb returns empty array on network failure', async () => {
-  const state = createSearchState({ ...config, searxngUrl: 'http://127.0.0.1:1' });
-  const results = await searchWeb('test', { ...config, searxngUrl: 'http://127.0.0.1:1' }, state);
+  const state = createSearchState(config);
+  const failingFetch: typeof fetch = async (input) => {
+    assert.equal(new URL(String(input)).origin, 'http://searxng:8080');
+    throw new TypeError('fetch failed');
+  };
+  const results = await searchWeb('test', config, state, undefined, failingFetch);
   assert.deepEqual(results, []);
 });
 
@@ -156,8 +172,8 @@ test('searchWeb returns empty array on invalid JSON', async (t) => {
   const baseUrl = await searxngServer(t, (_req, res) => {
     res.end('not json');
   });
-  const state = createSearchState({ ...config, searxngUrl: baseUrl });
-  const results = await searchWeb('test', { ...config, searxngUrl: baseUrl }, state);
+  const state = createSearchState(config);
+  const results = await searchWeb('test', config, state, undefined, testFetch(baseUrl));
   assert.deepEqual(results, []);
 });
 
@@ -171,9 +187,9 @@ test('searchWeb returns empty array on timeout', async (t) => {
   const address = http.address();
   assert.ok(address && typeof address !== 'string');
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  const cfg = { ...config, searxngUrl: baseUrl, searchTimeoutMs: 100 };
+  const cfg = { ...config, searchTimeoutMs: 100 };
   const state = createSearchState(cfg);
-  const results = await searchWeb('test', cfg, state);
+  const results = await searchWeb('test', cfg, state, undefined, testFetch(baseUrl));
   assert.deepEqual(results, []);
 });
 

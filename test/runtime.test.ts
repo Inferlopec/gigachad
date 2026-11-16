@@ -8,13 +8,18 @@ import { createRuntime } from '../src/runtime.ts';
 import type { complete } from '../src/llm.ts';
 import { config, message } from './support/fixtures.ts';
 
-async function fixture(t: test.TestContext, enabled = false, completion?: typeof complete) {
+async function fixture(
+  t: test.TestContext,
+  enabled = false,
+  completion?: typeof complete,
+  searchLlmOverrides: NodeJS.ProcessEnv = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), 'gigachad-runtime-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const prompt = join(dir, 'custom.md');
   await writeFile(prompt, 'custom system prompt');
   const c = config({ SYSTEM_PROMPT_PATH: prompt,
-    ...(enabled ? { SEARXNG_URL: 'https://search.example.com', SEARCH_LLM_MODEL: 'query-model' } : {}) });
+    ...(enabled ? { SEARCH_ENABLED: 'true', ...searchLlmOverrides } : {}) });
   let emit!: (m: Message) => void;
   let available = false;
   const calls: string[] = [];
@@ -44,8 +49,9 @@ async function fixture(t: test.TestContext, enabled = false, completion?: typeof
       system = input; calls.push('complete'); return 'answer';
     }),
     extractQuery: async (_conversation, deps) => {
-      assert.equal(deps.config.model, 'query-model');
-      assert.equal(deps.config.baseUrl, c.baseUrl);
+      assert.equal(deps.config.model, c.searchLlmModel);
+      assert.equal(deps.config.baseUrl, c.searchLlmBaseUrl);
+      assert.equal(deps.config.apiKey, c.searchLlmApiKey);
       calls.push('extract'); return 'test query';
     },
     search: async (query, received, _state, signal) => {
@@ -73,7 +79,11 @@ test('runtime uses configured prompt and existing handler without search depende
 });
 
 test('runtime wires optional query extraction and search before the configured LLM', async (t) => {
-  const f = await fixture(t, true);
+  const f = await fixture(t, true, undefined, {
+    SEARCH_LLM_BASE_URL: 'https://search-llm.example/v1',
+    SEARCH_LLM_API_KEY: 'search-only-secret',
+    SEARCH_LLM_MODEL: 'query-model',
+  });
   await f.runtime.start(); f.emit(); await f.replied;
   assert.deepEqual(f.calls, ['start', 'extract', 'search', 'complete', 'send:answer']);
   assert.match(f.system(), /^custom system prompt/);

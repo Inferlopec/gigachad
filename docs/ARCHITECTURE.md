@@ -7,7 +7,7 @@ Gigachad is a standalone AI bot for supported Gryt servers. It needs no Gryt ser
 - **Bot runtime:** connect/approve/reconnect via `@gryt/bot`; respond to direct mentions in one configured channel. Keep message handling, context, LLM and search modules independent.
 - **Configuration:** shared schema/validation for runtime and CLI; retain an env-based format unless M1 identifies a concrete reason to change it. Separate editable prompt file and identity.
 - **CLI:** TypeScript setup/config commands inside the application image; a small host-side wrapper manages Docker Compose and forwards interactive commands. No Docker socket inside the bot container.
-- **Search:** optional SearXNG integration; managed Compose service or external endpoint. Search failure must not prevent an LLM-only reply.
+- **Search:** opt-in SearXNG integration at the fixed internal Compose address `http://searxng:8080`; no user-configurable search endpoint. Query extraction inherits the primary OpenAI-compatible LLM API settings, with optional search-specific endpoint/key/model overrides for future CLI configuration. Search failure must not prevent an LLM-only reply.
 
 Runtime code boundaries:
 

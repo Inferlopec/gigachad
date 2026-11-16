@@ -1,8 +1,9 @@
 import type { Config } from './config.ts';
 
 type LlmConfig = Pick<Config, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
-// Search-query extraction uses the same endpoint as the main LLM, with an
-// independently selected model and a smaller request budget.
+// Search-query extraction shares the Chat Completions transport and inherits
+// the main LLM API settings by default; callers may override them and use a
+// smaller request budget.
 export type SearchLlmConfig = {
   baseUrl: string;
   apiKey: string;

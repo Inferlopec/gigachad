@@ -1,6 +1,7 @@
 name: gryt-gigachad
 services:
   searxng:
+    profiles: [search]
     image: docker.io/searxng/searxng:latest
     container_name: searxng-core
     restart: unless-stopped
@@ -33,9 +34,6 @@ services:
     volumes:
       - identity:/data
       - ./prompts:/app/prompts:ro
-    depends_on:
-      searxng:
-        condition: service_healthy
     logging:
       driver: json-file
       options:

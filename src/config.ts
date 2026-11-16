@@ -10,8 +10,7 @@ function integer(env: NodeJS.ProcessEnv, name: string, fallback?: number): numbe
   return value;
 }
 
-function endpoint(env: NodeJS.ProcessEnv, name: string): string {
-  const value = required(env, name);
+function parseEndpoint(value: string, name: string): string {
   try {
     const url = new URL(value);
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
@@ -24,7 +23,38 @@ function endpoint(env: NodeJS.ProcessEnv, name: string): string {
   }
 }
 
+function endpoint(env: NodeJS.ProcessEnv, name: string): string {
+  return parseEndpoint(required(env, name), name);
+}
+
+function optionalEndpoint(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = env[name]?.trim();
+  return value ? parseEndpoint(value, name) : fallback;
+}
+
+function optionalValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  return env[name]?.trim() || undefined;
+}
+
+function optionalSingleLine(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = optionalValue(env, name) ?? fallback;
+  if (/[\r\n]/.test(value)) throw new Error(`${name} must be a single line.`);
+  return value;
+}
+
+function boolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const value = optionalValue(env, name)?.toLowerCase();
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`${name} must be true or false.`);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
+  const baseUrl = endpoint(env, 'LLM_BASE_URL');
+  const model = required(env, 'LLM_MODEL');
+  const apiKey = required(env, 'LLM_API_KEY');
+  const searchEnabled = boolean(env, 'SEARCH_ENABLED', false);
   const config = {
     host: endpoint(env, 'GRYT_HOST'),
     nickname: required(env, 'GRYT_NICKNAME'),
@@ -32,34 +62,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     identityPath: required(env, 'GRYT_IDENTITY_PATH'),
     promptPath: env.SYSTEM_PROMPT_PATH === undefined ? 'prompts/system.md' : required(env, 'SYSTEM_PROMPT_PATH'),
     botToken: env.GRYT_BOT_TOKEN?.trim() || undefined,
-    baseUrl: endpoint(env, 'LLM_BASE_URL'),
-    model: required(env, 'LLM_MODEL'),
-    apiKey: required(env, 'LLM_API_KEY'),
+    baseUrl,
+    model,
+    apiKey,
     contextTokens: integer(env, 'LLM_CONTEXT_TOKENS'),
     maxTokens: integer(env, 'LLM_MAX_TOKENS'),
     timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
-    searxngUrl: env.SEARXNG_URL?.trim() || undefined,
-    // Independently configurable extraction model at the same endpoint.
-    // It may be the same model as LLM_MODEL.
-    searchLlmModel: env.SEARCH_LLM_MODEL?.trim() || undefined,
+    searchEnabled,
+    // Search query extraction inherits the main API settings unless explicitly
+    // overridden. These separate fields let the future CLI configure a search
+    // model independently without requiring a second API configuration today.
+    searchLlmBaseUrl: searchEnabled ? optionalEndpoint(env, 'SEARCH_LLM_BASE_URL', baseUrl) : baseUrl,
+    searchLlmApiKey: searchEnabled ? optionalSingleLine(env, 'SEARCH_LLM_API_KEY', apiKey) : apiKey,
+    searchLlmModel: searchEnabled ? optionalSingleLine(env, 'SEARCH_LLM_MODEL', model) : model,
     // Extraction is a tiny single-line task: short output budget and a short
     // timeout so a stalled extraction degrades to "no search" quickly.
-    searchLlmTimeoutMs: integer(env, 'SEARCH_LLM_TIMEOUT_MS', 8_000),
-    searchLlmMaxTokens: integer(env, 'SEARCH_LLM_MAX_TOKENS', 100),
-    searchLlmContextTokens: integer(env, 'SEARCH_LLM_CONTEXT_TOKENS', 8_192),
-    searchTimeoutMs: integer(env, 'SEARCH_TIMEOUT_MS', 10_000),
-    searchMaxResults: integer(env, 'SEARCH_MAX_RESULTS', 5),
-    searchRateLimit: integer(env, 'SEARCH_RATE_LIMIT', 5),
-    searchRateWindowMs: integer(env, 'SEARCH_RATE_WINDOW_MS', 60_000),
-    searchCacheTtlMs: integer(env, 'SEARCH_CACHE_TTL_MS', 300_000),
+    searchLlmTimeoutMs: searchEnabled ? integer(env, 'SEARCH_LLM_TIMEOUT_MS', 8_000) : 8_000,
+    searchLlmMaxTokens: searchEnabled ? integer(env, 'SEARCH_LLM_MAX_TOKENS', 100) : 100,
+    searchLlmContextTokens: searchEnabled ? integer(env, 'SEARCH_LLM_CONTEXT_TOKENS', 8_192) : 8_192,
+    searchTimeoutMs: searchEnabled ? integer(env, 'SEARCH_TIMEOUT_MS', 10_000) : 10_000,
+    searchMaxResults: searchEnabled ? integer(env, 'SEARCH_MAX_RESULTS', 5) : 5,
+    searchRateLimit: searchEnabled ? integer(env, 'SEARCH_RATE_LIMIT', 5) : 5,
+    searchRateWindowMs: searchEnabled ? integer(env, 'SEARCH_RATE_WINDOW_MS', 60_000) : 60_000,
+    searchCacheTtlMs: searchEnabled ? integer(env, 'SEARCH_CACHE_TTL_MS', 300_000) : 300_000,
   };
   if (/[\r\n]/.test(config.nickname)) throw new Error('GRYT_NICKNAME must be a single line.');
   if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
-  if (config.searchLlmMaxTokens + 256 >= config.searchLlmContextTokens) {
+  if (searchEnabled && config.searchLlmMaxTokens + 256 >= config.searchLlmContextTokens) {
     throw new Error('SEARCH_LLM_MAX_TOKENS must leave room for input.');
-  }
-  if (config.searxngUrl && !config.searchLlmModel) {
-    throw new Error('SEARXNG_URL is set, so SEARCH_LLM_MODEL must be set too (search needs a model to extract the query).');
   }
   return config;
 }

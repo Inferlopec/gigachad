@@ -123,19 +123,20 @@ follow-up change because the assigned task excludes application code changes.
 
 ### M1.3 — Optional search (#3)
 
-1. Default distributed configuration to search disabled. Currently `.env.example`
-   sets SEARXNG_URL but leaves SEARCH_LLM_MODEL empty, which fails config validation.
-2. Validate search URL with the same safe HTTP(S) policy when enabled. Decide
-   disabled-search validation consistently: currently all search numeric values
-   and extraction budgets are validated even with no search endpoint.
-3. Put managed SearXNG behind an opt-in Compose profile or equivalent composition;
-   remove the bot's unconditional `depends_on: service_healthy`. Retain explicit
-   endpoint-based external search without requiring a managed service.
+1. Default search to disabled with `SEARCH_ENABLED=false`. Keep SearXNG at the
+   fixed internal Compose address `http://searxng:8080`; do not expose a user URL.
+2. Let search-query extraction inherit the main LLM API endpoint, key and model.
+   Support optional `SEARCH_LLM_BASE_URL`, `SEARCH_LLM_API_KEY` and
+   `SEARCH_LLM_MODEL` overrides for future CLI configuration, and validate them
+   only when search is enabled.
+3. Put managed SearXNG behind an opt-in Compose profile and remove the bot's
+   unconditional `depends_on: service_healthy`.
 4. Preserve query extraction, rate limits, cache, breaker and LLM-only fallback.
-   Test disabled wiring, enabled success, malformed endpoint and upstream failure.
+   Test disabled wiring, the fixed internal endpoint, inherited/overridden LLM
+   settings, and extraction/search failures.
 5. Update development/deployment instructions for actual disabled/enabled modes.
    Validate both Compose configurations with v2 and build/smoke-test the image;
-   then run typecheck, all tests and build. Installer management remains in M3.3.
+   then run typecheck, all tests and build. Installer lifecycle remains in M3.3.
 
 M1 exit additionally requires generic config to work and existing mention,
 single-channel, conversation and LLM behavior to remain covered. None of the

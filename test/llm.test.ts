@@ -191,7 +191,11 @@ test('configuration requires channel, credentials and valid budgets', () => {
 
 test('completeSearchQuery sends configured request with small budget and no retry', async (t) => {
   let payload: { model: string; max_tokens: number } | undefined;
+  let auth: string | undefined;
+  let requestUrl: string | undefined;
   const baseUrl = await server(t, async (req, res) => {
+    requestUrl = req.url;
+    auth = req.headers.authorization;
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     payload = JSON.parse(Buffer.concat(chunks).toString());
@@ -203,6 +207,8 @@ test('completeSearchQuery sends configured request with small budget and no retr
   };
   const result = await completeSearchQuery(searchConfig, 'extract system', [{ role: 'user', content: 'how much does iphone 16 weigh?' }]);
   assert.equal(result, 'iphone 16 weight');
+  assert.equal(requestUrl, '/v1/chat/completions');
+  assert.equal(auth, 'Bearer search-key');
   assert.equal(payload?.model, 'search-model');
   assert.equal(payload?.max_tokens, 100);
   assert.equal(Object.hasOwn(payload!, 'chat_template_kwargs'), false);
@@ -263,34 +269,37 @@ test('completeSearchQuery respects shutdown abort', async () => {
   );
 });
 
-test('configuration enforces search-LLM pairing and budget', () => {
+test('search LLM settings inherit the primary API and validate budgets only when enabled', () => {
   const env = {
     GRYT_HOST: 'https://chat.example.com', GRYT_NICKNAME: 'Assistant', GRYT_ALLOWED_CHANNEL_ID: 'channel-1',
     GRYT_IDENTITY_PATH: './data/identity.json', LLM_BASE_URL: 'https://example.com/v1',
     LLM_MODEL: 'answer-model', LLM_API_KEY: 'test', LLM_CONTEXT_TOKENS: '131000',
     LLM_MAX_TOKENS: '1024', LLM_TIMEOUT_MS: '60000',
   };
-  // SEARXNG_URL set without SEARCH_LLM_MODEL must throw.
-  assert.throws(
-    () => loadConfig({ ...env, SEARXNG_URL: 'http://searxng:8080' }),
-    /SEARCH_LLM_MODEL/,
-  );
-  // Both set: ok.
-  const ok = loadConfig({ ...env, SEARXNG_URL: 'http://searxng:8080', SEARCH_LLM_MODEL: 'search-model' });
+  const disabled = loadConfig(env);
+  assert.equal(disabled.searchEnabled, false);
+  assert.equal(disabled.searchLlmBaseUrl, disabled.baseUrl);
+  assert.equal(disabled.searchLlmApiKey, disabled.apiKey);
+  assert.equal(disabled.searchLlmModel, disabled.model);
+
+  const ok = loadConfig({
+    ...env, SEARCH_ENABLED: 'true',
+    SEARCH_LLM_BASE_URL: 'https://search-llm.example/v1',
+    SEARCH_LLM_API_KEY: 'search-key', SEARCH_LLM_MODEL: 'search-model',
+  });
+  assert.equal(ok.searchEnabled, true);
+  assert.equal(ok.searchLlmBaseUrl, 'https://search-llm.example/v1');
+  assert.equal(ok.searchLlmApiKey, 'search-key');
   assert.equal(ok.searchLlmModel, 'search-model');
   assert.equal(ok.searchLlmTimeoutMs, 8000);
   assert.equal(ok.searchLlmMaxTokens, 100);
   assert.equal(ok.searchLlmContextTokens, 8192);
   assert.equal(ok.searchTimeoutMs, 10000);
   assert.equal(ok.searchMaxResults, 5);
-  // SEARXNG_URL empty: searchLlmModel may be absent.
-  const noSearch = loadConfig(env);
-  assert.equal(noSearch.searxngUrl, undefined);
-  assert.equal(noSearch.searchLlmModel, undefined);
-  // SEARCH_LLM_MAX_TOKENS too large for its context must throw.
+  // Search-specific budgets are validated once the feature is enabled.
   assert.throws(
     () => loadConfig({
-      ...env, SEARXNG_URL: 'http://searxng:8080', SEARCH_LLM_MODEL: 'm',
+      ...env, SEARCH_ENABLED: 'true', SEARCH_LLM_MODEL: 'm',
       SEARCH_LLM_MAX_TOKENS: '999999', SEARCH_LLM_CONTEXT_TOKENS: '8192',
     }),
     /SEARCH_LLM_MAX_TOKENS/,
