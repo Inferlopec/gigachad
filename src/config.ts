@@ -50,18 +50,43 @@ function boolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boole
   throw new Error(`${name} must be true or false.`);
 }
 
+function singleLine(env: NodeJS.ProcessEnv, name: string): string {
+  const value = required(env, name);
+  if (/[\x00-\x1f\x7f]/.test(value)) throw new Error(`${name} must be a single line without control characters.`);
+  return value;
+}
+
+export type GrytConfig = { host: string; nickname: string; identityPath: string; botToken?: string };
+
+export function loadGrytHost(value: string): string {
+  return endpoint({ GRYT_HOST: value }, 'GRYT_HOST');
+}
+
+// Setup validates the same Gryt fields as runtime without requiring an LLM yet.
+export function loadGrytConfig(env: NodeJS.ProcessEnv): GrytConfig {
+  const botToken = env.GRYT_BOT_TOKEN?.trim() || undefined;
+  if (botToken && /[\x00-\x1f\x7f]/.test(botToken)) throw new Error('GRYT_BOT_TOKEN must be a single line without control characters.');
+  return {
+    host: loadGrytHost(required(env, 'GRYT_HOST')),
+    nickname: singleLine(env, 'GRYT_NICKNAME'),
+    identityPath: singleLine(env, 'GRYT_IDENTITY_PATH'),
+    botToken,
+  };
+}
+
+export function loadChannelId(value: string): string {
+  return singleLine({ GRYT_ALLOWED_CHANNEL_ID: value }, 'GRYT_ALLOWED_CHANNEL_ID');
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const baseUrl = endpoint(env, 'LLM_BASE_URL');
   const model = required(env, 'LLM_MODEL');
   const apiKey = required(env, 'LLM_API_KEY');
   const searchEnabled = boolean(env, 'SEARCH_ENABLED', false);
   const config = {
-    host: endpoint(env, 'GRYT_HOST'),
-    nickname: required(env, 'GRYT_NICKNAME'),
-    channelId: required(env, 'GRYT_ALLOWED_CHANNEL_ID'),
-    identityPath: required(env, 'GRYT_IDENTITY_PATH'),
+    ...loadGrytConfig(env),
+    channelId: loadChannelId(required(env, 'GRYT_ALLOWED_CHANNEL_ID')),
     promptPath: env.SYSTEM_PROMPT_PATH === undefined ? 'prompts/system.md' : required(env, 'SYSTEM_PROMPT_PATH'),
-    botToken: env.GRYT_BOT_TOKEN?.trim() || undefined,
     baseUrl,
     model,
     apiKey,

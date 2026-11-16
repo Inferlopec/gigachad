@@ -10,6 +10,7 @@
     "dev": "node --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/index.js",
+    "setup": "node src/cli.ts setup",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts"
   },

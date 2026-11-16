@@ -14,10 +14,25 @@ Runtime code boundaries:
 - `src/index.ts` invokes `runProcess`; `src/process.ts` loads validated configuration and owns process signal handlers.
 - `src/runtime.ts` connects the existing handler, LLM and optional search modules through injected dependencies. Its stop operation aborts requests and drains message handlers.
 - `src/gryt.ts` owns identity loading, SDK construction and lifecycle, including the pinned SDK's raw-socket self-ID workaround. Disconnect clears identity availability; each join restores it independently of the one-time `ready` event. Stop settles startup even while approval is pending.
+- `src/identityLease.ts` provides atomic filesystem ownership beside the canonical identity path, shared by runtime and setup before identity loading. Stop releases ownership after disconnect; an in-flight SDK identity write retains ownership until it settles. Failed shutdown retains the lock. Crash recovery requires stopping all owners and manually removing only the adjacent empty `.lock` directory; identity is never removed or regenerated for lock recovery.
+- `src/registration.ts` exposes terminal-independent registration with structured progress, cancellation and text-channel results through the Gryt integration. The caller holds the registration session until channel selection/save finishes, then closes it; no message handling or LLM runtime is started.
+- `src/setup.ts` orchestrates the M2.1 Gryt-only wizard; `src/cli.ts` owns terminal input, hidden token entry and signals. `src/setupStore.ts` reads the selected dotenv file and explicitly saves validated Gryt settings with a private temporary file and atomic rename. It refuses detected concurrent edits, preserves unrelated setting values, rewrites formatting/comments and removes the single-use token on save. It does not require LLM settings for this partial setup. Relative paths use the process working directory.
 - `src/config.ts` is the shared env validation source for runtime and future CLI. `GRYT_NICKNAME` is required; `SYSTEM_PROMPT_PATH` defaults to `prompts/system.md`. Identity and prompt remain separate files. Endpoint and SDK errors are logged without raw supplied values or server payloads.
 
 Gryt, LLM and search boundaries can be mocked without connecting to live services.
 The generic LLM transport sends no provider-specific chat-template parameters.
+
+## CLI boundaries (M2/M3)
+
+v1.0.0 provides interactive setup/configuration and direct lifecycle commands. A simple full-screen TUI is a post-v1.0 direction, not a release requirement. Preserve these boundaries while implementing the existing M2/M3 work:
+
+- Keep registration, channel lookup, LLM checks, configuration persistence and service operations separate from prompts, menus and terminal rendering. Actions accept explicit inputs and can be tested without a terminal.
+- Return structured results and safe errors; expose progress for long operations such as approval waits and connectivity checks. The CLI owns human-readable formatting. Do not make another interface parse human-readable CLI output.
+- Support cancellation of approval waits and network checks, with cleanup of connections/listeners and identity ownership. Cancellation must settle the operation without leaving a competing bot process.
+- Edit settings and prompt content as a draft; validate and persist only after an explicit save. Cancelled or invalid edits leave previously saved configuration and prompt unchanged. Identity creation/registration is a separate persistent operation: retain a newly created identity even when later setup steps are cancelled, and explain that outcome to the user.
+- Keep Docker Compose operations on the host behind reusable command functions or an adapter. Setup/configuration remains inside the application image. Where structured results cross this boundary, use a small machine-readable command contract; no daemon, HTTP API or Docker socket mount is needed. Direct commands remain available independently of any future menu.
+
+Verify these boundaries with focused mocked action tests, including progress/cancellation and save/cancel behavior, under the standard `npm test` discovery. Host-wrapper checks belong to M3. No TUI library, screen framework, live dashboard or generalized plugin system is required for v1.0.0; choose terminal rendering and the TUI execution location after v1.0 when its scope is agreed.
 
 ## Deployment
 

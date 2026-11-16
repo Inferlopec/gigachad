@@ -129,6 +129,49 @@ Your local edits stay out of version control, so `git pull --ff-only` during upd
 
 ## Developer Guide
 
+### CLI: Gryt setup (M2.1)
+
+With Node.js 24 and installed dependencies, stop any bot using the same identity
+and run:
+
+```sh
+npm run setup
+# Or select another dotenv file:
+npm run setup -- --env-file /path/to/bot.env
+```
+
+The wizard asks for a Gryt HTTP(S) host, nickname and persistent identity path,
+then an optional hidden single-use token. Leave the token blank to wait for
+administrator approval. It lists accessible text channels with a manual ID
+fallback and asks before saving. Ctrl+C cancels; configuration is unchanged,
+but any created identity or completed registration is retained. Always reuse
+that identity path. Relative paths are resolved from the working directory,
+including when a different dotenv file is selected.
+
+Saving rewrites the selected dotenv file with mode `0600`, preserving other
+setting values but replacing comments/formatting and removing `GRYT_BOT_TOKEN`.
+The token is only used for the setup connection. Existing environment variables
+are not imported into the wizard: it reads the selected file. Setup does not
+start the bot or configure the LLM/prompt; complete those settings using the
+current user guide until M2.2/M2.3 are implemented.
+
+Compiled entry: `node dist/cli.js setup [--env-file PATH]` after `npm run build`.
+An interactive terminal is required. Installer/container forwarding, host
+lifecycle commands and `config` are planned for later M2/M3 work.
+Registration actions are separate from terminal dialogs, with structured
+results and progress, cancellation and explicit save/cancel for settings.
+A simple full-screen TUI is a post-v1.0 direction and will reuse those actions;
+it is outside v1.0 acceptance. See [ROADMAP.md](ROADMAP.md) and the
+[CLI boundaries](docs/ARCHITECTURE.md#cli-boundaries-m2m3).
+
+Runtime and setup share an atomic lock beside the identity file
+(`<identity-path>.lock`). A second process fails before loading the identity or
+connecting. Paths resolving to the same identity share the lock. Normal shutdown
+releases it; a crash can leave it behind. To recover, first stop **all** bot and
+setup processes using that identity, then remove only the empty `.lock`
+directory with `rmdir`. Keep the identity file. Lock recovery is deliberately
+manual to avoid replacing a bot's identity or interrupting an active owner.
+
 ### Setup
 
 Requires Node.js 24 and npm. The repository includes `.nvmrc` for version managers.
@@ -258,6 +301,11 @@ line in `compose.yaml` (e.g. `docker.io/searxng/searxng:2026.11.5`).
 ```
 src/
   config.ts      # env loading and validation
+  cli.ts         # interactive terminal entry (setup)
+  setup.ts       # setup dialog orchestration
+  setupStore.ts  # explicit private dotenv saves
+  registration.ts # terminal-independent Gryt registration action
+  identityLease.ts # shared runtime/setup filesystem ownership
   handler.ts     # mention matching, dedup, reply routing
   llm.ts         # OpenAI-compatible API client (complete + completeSearchQuery)
   search.ts      # SearXNG client with rate limiting, circuit breaker, cache

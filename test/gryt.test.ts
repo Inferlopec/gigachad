@@ -8,7 +8,6 @@ import { config, FakeBot, identity, joined, message } from './support/fixtures.t
 
 async function fixture(t: test.TestContext, bot = new FakeBot()) {
   const dir = await mkdtemp(join(tmpdir(), 'gigachad-gryt-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   const logs: string[] = [];
   const messages: unknown[] = [];
   const c = config({ GRYT_IDENTITY_PATH: join(dir, 'identity.json'), GRYT_BOT_TOKEN: 'secret-token' });
@@ -16,7 +15,7 @@ async function fixture(t: test.TestContext, bot = new FakeBot()) {
     createBot: bot.create, loadIdentity: async () => identity,
     onMessage: (m) => messages.push(m), log: (m) => logs.push(m), logError: (m) => logs.push(m),
   });
-  t.after(() => adapter.stop());
+  t.after(async () => { await adapter.stop(); await rm(dir, { recursive: true, force: true }); });
   return { adapter, bot, c, logs, messages };
 }
 

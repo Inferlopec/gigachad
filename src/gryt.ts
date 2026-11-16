@@ -1,8 +1,9 @@
-import { mkdir } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
 import { GrytBot, loadIdentity } from '@gryt/bot';
 import type { GrytBotOptions, Message } from '@gryt/bot';
-import type { Config } from './config.ts';
+import type { GrytConfig } from './config.ts';
+import { acquireIdentityLease } from './identityLease.ts';
+
+export type GrytProgress = 'identity-loaded' | 'connecting' | 'waiting' | 'ready';
 
 export type GrytClient = Pick<GrytBot,
   'on' | 'off' | 'start' | 'stop' | 'socket' | 'permissions' | 'channels' | 'send' | 'typing' | 'stopTyping'>;
@@ -11,6 +12,7 @@ export type GrytIntegration = {
   stop: () => Promise<void>;
   selfId: () => string | null;
   available: () => boolean;
+  channels: () => { id: string; name: string }[];
   send: (channel: string, text: string) => Promise<unknown>;
   typing: (channel: string) => void;
   stopTyping: (channel: string) => void;
@@ -21,16 +23,19 @@ type Dependencies = {
   logError: (message: string) => void;
   createBot?: (options: GrytBotOptions) => GrytClient;
   loadIdentity?: typeof loadIdentity;
+  onProgress?: (event: GrytProgress) => void;
 };
 
 // Only this module knows about SDK 0.3.1's socket timing and private self-ID.
-export function createGrytIntegration(config: Config, deps: Dependencies): GrytIntegration {
+export function createGrytIntegration(config: GrytConfig & { channelId?: string }, deps: Dependencies): GrytIntegration {
   let bot: GrytClient | undefined;
   let socket: GrytClient['socket'] = null;
   let selfId: string | null = null;
   let stopped = false;
   let startup: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
+  let lease: Awaited<ReturnType<typeof acquireIdentityLease>> | undefined;
+  let loading: ReturnType<typeof loadIdentity> | undefined;
   let finishWaiting!: () => void;
   const stopRequested = new Promise<void>((resolve) => { finishWaiting = resolve; });
   const available = () => !stopped && selfId !== null && !!bot &&
@@ -57,10 +62,14 @@ export function createGrytIntegration(config: Config, deps: Dependencies): GrytI
     if (!stopped) deps.log('Disconnected; SDK will reconnect.');
   };
   const onError = () => deps.logError('Gryt SDK error. Check registration, permissions and connectivity.');
-  const onWaiting = () => deps.log('Waiting for administrator approval.');
+  const onWaiting = () => {
+    deps.log('Waiting for administrator approval.');
+    deps.onProgress?.('waiting');
+  };
   const onReady = () => {
     deps.log('Gryt connection ready.');
-    if (!bot?.channels.some((channel) => channel.id === config.channelId)) {
+    deps.onProgress?.('ready');
+    if (config.channelId && !bot?.channels.some((channel) => channel.id === config.channelId)) {
       deps.logError('Configured channel is not visible. Check GRYT_ALLOWED_CHANNEL_ID and channel access.');
     }
   };
@@ -77,21 +86,37 @@ export function createGrytIntegration(config: Config, deps: Dependencies): GrytI
     selfId = null;
     finishWaiting();
     return stopping ??= (async () => {
-      try { await bot?.stop(); }
-      finally { cleanup(); }
+      let disconnected = false;
+      try { await bot?.stop(); disconnected = true; }
+      finally {
+        cleanup();
+        // SDK identity generation is not abortable. Keep ownership until that
+        // write settles, even though approval/start cancellation settles now.
+        if (!disconnected) {
+          // Keep ownership if the SDK could not confirm shutdown.
+          deps.logError('Gryt shutdown failed; identity lock retained.');
+        } else if (loading) {
+          void loading.then(() => lease?.release(), () => lease?.release())
+            .catch(() => deps.logError('Could not release identity lock.'));
+        } else await lease?.release();
+      }
     })();
   };
   const start = async () => {
     if (stopped) return;
     try {
-      await mkdir(dirname(resolve(config.identityPath)), { recursive: true, mode: 0o700 });
-      if (stopped) return;
+      lease = await acquireIdentityLease(config.identityPath);
+      if (stopped) { await lease.release(); return; }
+      loading = (deps.loadIdentity ?? loadIdentity)(lease.path);
+      void loading.finally(() => { loading = undefined; }).catch(() => {});
       const identity = await Promise.race([
-        (deps.loadIdentity ?? loadIdentity)(config.identityPath),
+        loading,
         stopRequested.then(() => undefined),
       ]);
       if (stopped || !identity) return;
       deps.log('Bot identity loaded.');
+      deps.onProgress?.('identity-loaded');
+      if (stopped) return;
       bot = (deps.createBot ?? ((options) => new GrytBot(options)))({
         host: config.host, nickname: config.nickname, identity,
         wants: ['read_messages', 'send_messages'],
@@ -104,6 +129,8 @@ export function createGrytIntegration(config: Config, deps: Dependencies): GrytI
       bot.on('disconnected', onDisconnected);
       bot.on('ready', onReady);
       // With preloaded identity, SDK 0.3.1 creates its socket before start returns.
+      deps.onProgress?.('connecting');
+      if (stopped) return;
       const starting = bot.start();
       void starting.catch(() => {});
       socket = bot.socket;
@@ -122,6 +149,9 @@ export function createGrytIntegration(config: Config, deps: Dependencies): GrytI
   return {
     start: () => startup ??= start(), stop,
     selfId: () => selfId, available,
+    channels: () => available() ? (bot?.channels ?? [])
+      .filter((channel) => channel.type === 'text')
+      .map(({ id, name }) => ({ id, name })) : [],
     send: async (channel, text) => {
       if (!available() || !bot) throw new Error('Gryt connection unavailable');
       return bot.send(channel, text);

@@ -23,6 +23,7 @@
 - Use an OpenAI-compatible LLM endpoint; never assume a specific provider or model.
 - No hardcoded personal hosts, models, names, credentials, or private prompts.
 - Use one validated configuration source shared by runtime and CLI. Never print secrets or commit runtime data.
+- During M2/M3, separate CLI actions from terminal dialogs/rendering; use structured results/progress, cancellable long operations and explicit saving of validated config/prompt drafts. Preserve identity independently of cancelled edits. Keep Compose control on the host and direct commands usable without menus. Follow `docs/ARCHITECTURE.md`; full-screen TUI implementation is deferred until after v1.0, with no TUI framework required now.
 - Persist bot identity across restarts and upgrades. Never regenerate or remove it implicitly.
 - Search is opt-in; the bot must operate without SearXNG.
 

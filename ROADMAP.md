@@ -15,19 +15,23 @@ Exit: existing bot behavior preserved, generic config works, tests and build pas
 
 ## M2 — Interactive CLI
 
+Provide interactive setup/configuration for v1.0.0. Separate actions from terminal dialogs, return structured results and progress, support cancellation, and save validated configuration/prompt drafts only on explicit confirmation. Preserve identity independently of cancelled configuration edits. Follow the CLI boundaries in `docs/ARCHITECTURE.md`; a full-screen TUI is deferred until after v1.0.
+
 - **M2.1 — Setup and registration:** configure host/nickname, persist identity, handle approval/token, select channel or enter ID.
 - **M2.2 — LLM and prompts:** configure endpoint/key/model/context, test connectivity, edit the system prompt.
 - **M2.3 — Configuration management:** implement repeatable `setup` and `config`, validation/cancellation and opt-in search.
 
-Exit: configure and edit a fresh installation without manual file changes.
+Exit: configure and edit a fresh installation without manual file changes; actions are testable without a terminal, and mocked tests verify progress/cancellation and safe save/cancel behavior.
 
 ## M3 — Deployment
+
+Keep direct lifecycle commands and host Compose operations separate from terminal presentation. Expose reusable operations and structured status/diagnostic results, including a small machine-readable command contract where data crosses the host/container boundary. Setup/config runs inside the image; Docker control stays on the host, without an in-container socket or an API service.
 
 - **M3.1 — Installer and release assets:** Linux amd64, Docker Compose v2, no host Node.js or source checkout.
 - **M3.2 — Host CLI:** lifecycle commands, logs, status and doctor; forward interactive setup/config.
 - **M3.3 — Updates and data:** versioned images, persistent restricted config/secrets/prompts/identity, safe update/uninstall, optional managed or external SearXNG.
 
-Exit: installation and lifecycle management work on a clean VM.
+Exit: installation and lifecycle management work on a clean VM; lifecycle/status/diagnostics can be consumed independently of interactive rendering, with host-wrapper verification.
 
 ## M4 — Release pipeline
 
@@ -44,6 +48,10 @@ Exit: CI passes and release flow is verified.
 - **M5.3 — Documentation and release:** installation, configuration, troubleshooting and supported versions; maintainer approval for merge/release.
 
 Exit: release candidate passes end-to-end checks; no legacy migration.
+
+## After v1.0 — Simple full-screen TUI
+
+Future direction, outside M1–M5 and v1.0.0 acceptance: a main menu with configuration screens, bot status and basic service controls, reusing the M2/M3 actions. Preserve direct CLI commands. Live log dashboards and multiple auto-updating panels are not part of this simple TUI concept. Agree detailed scope and create a separate milestone/issues after v1.0; no TUI dependency or screen framework is needed now.
 
 ## Issue format
 

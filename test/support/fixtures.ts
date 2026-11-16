@@ -26,7 +26,7 @@ export const joined = (claims: unknown = { serverUserId: 'bot-1' }) => ({
 export class FakeBot extends EventEmitter {
   socket: EventEmitter | null = new EventEmitter();
   permissions = ['read_messages', 'send_messages'];
-  channels = [{ id: 'allowed' }];
+  channels: { id: string; name: string; type: 'text' | 'voice' }[] = [{ id: 'allowed', name: 'General', type: 'text' }];
   options?: GrytBotOptions;
   stopCount = 0;
   startCount = 0;

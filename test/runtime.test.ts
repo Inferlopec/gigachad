@@ -35,7 +35,7 @@ async function fixture(
       return {
         start: async () => { available = true; calls.push('start'); },
         stop: async () => { available = false; calls.push('stop'); },
-        available: () => available, selfId: () => 'bot-1',
+        available: () => available, selfId: () => 'bot-1', channels: () => [],
         send: async (channel, text) => {
           assert.equal(channel, 'allowed'); calls.push(`send:${text}`); sent();
         },
@@ -111,7 +111,7 @@ test('runtime startup failure aborts and stops the integration', async () => {
     log: () => {}, logError: () => {},
     createGryt: () => ({
       start: async () => { throw new Error('failed'); }, stop: async () => { stops++; },
-      selfId: () => null, available: () => false, send: async () => {}, typing: () => {}, stopTyping: () => {},
+      selfId: () => null, available: () => false, channels: () => [], send: async () => {}, typing: () => {}, stopTyping: () => {},
     }),
   });
   await assert.rejects(runtime.start(), /failed/);
