@@ -7,6 +7,7 @@ Track work in [GitHub Milestones](https://github.com/Inferlopec/gigachad/milesto
 ## M1 — Core refactoring
 
 - **M1.1 — Audit and baseline:** inspect architecture, SDK compatibility and test discovery; establish a passing baseline.
+- **M1.4 — Baseline CI:** after M1.1 and before M1.2, run locked installation, typecheck, all tests and application build on pushes to `next` and PRs targeting `next`/`main`; no publishing. Numbering preserves existing issue identifiers.
 - **M1.2 — Runtime and configuration:** separate the Gryt lifecycle/entry point, isolate the self-ID workaround, centralize validation and remove personal defaults.
 - **M1.3 — Optional search:** decouple SearXNG from mandatory runtime and Compose dependencies.
 
@@ -30,7 +31,7 @@ Exit: installation and lifecycle management work on a clean VM.
 
 ## M4 — Release pipeline
 
-- **M4.1 — CI:** locked dependencies, typecheck, tests and image build on push/PR.
+- **M4.1 — Image CI and final validation:** extend the M1.4 baseline workflow with Linux amd64 image builds on push/PR and validate the complete check suite against deployment assets; retain locked dependencies, typecheck, all tests and application build.
 - **M4.2 — Release automation:** tag-triggered linux/amd64 GHCR image and GitHub Release assets; built-in GITHUB_TOKEN with minimal permissions.
 - **M4.3 — Pipeline validation:** validate publish flow and version tags without prematurely releasing a stable image.
 

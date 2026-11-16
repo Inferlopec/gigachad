@@ -140,6 +140,10 @@ Edit `.env` as described in the user guide above.
 
 ### Commands
 
+CI runs the locked dependency installation, typecheck, all tests and application
+build on pushes to `next` and pull requests targeting `next` or `main`. It uses
+the Node.js version in `.nvmrc`; no live Gryt, LLM or search services are needed.
+
 ```sh
 npm run typecheck   # type-check without emitting
 npm test            # run tests (synthetic messages + local HTTP server)
