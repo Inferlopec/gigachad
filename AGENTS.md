@@ -11,6 +11,7 @@
 
 - GitHub Milestones (M1–M5) define release stages; Issues define scoped work and acceptance criteria. GitHub is the source of truth for task status.
 - Work on one issue at a time within the active milestone; reference its number in commits/PRs. Do not expand scope without agreement.
+- Do not create commits or push changes without explicit user confirmation for that action. Prepare and verify the changes first; leave them uncommitted for review until confirmation is given. Starting an issue is not permission to commit or push, and past approval does not authorize later changes.
 - Close an issue only after its acceptance criteria are verified and the change is integrated into `next`. Advance to the next milestone only when the current one is complete.
 - For audit/documentation issues, integrate the findings and verification evidence into `next` before closing; resolve any acceptance blockers first.
 - If GitHub access is unavailable, follow the issue scope in `ROADMAP.md` or the assigned prompt; report status rather than assuming an issue is closed.
@@ -32,5 +33,6 @@
 - Run the checks affected by test, tooling or workflow changes, including the standard typecheck/test/build checks when test discovery or CI changes.
 - Add focused tests for changed behavior; use mocks for Gryt/LLM/search in CI.
 - For deployment changes, validate Compose and build/smoke-test the image.
+- Begin full end-to-end testing with live Gryt/LLM/search after M3.1. Keep automated checks and issue-specific deployment validation during development; final release acceptance remains in M5.
 - Keep PRs milestone-scoped. Report any checks not run, blockers, and remaining milestone criteria.
 - Do not publish releases or modify production settings without maintainer approval.

@@ -1,8 +1,8 @@
 import type { Config } from './config.ts';
 
 type LlmConfig = Pick<Config, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
-// Dedicated config for the search-query extraction call. Same endpoint as the
-// main LLM, but a different (cheaper) model and a much smaller budget.
+// Search-query extraction uses the same endpoint as the main LLM, with an
+// independently selected model and a smaller request budget.
 export type SearchLlmConfig = {
   baseUrl: string;
   apiKey: string;
@@ -70,7 +70,6 @@ async function callChatCompletions(
         body: JSON.stringify({
           model: config.model,
           stream: false,
-          chat_template_kwargs: { enable_thinking: false },
           max_tokens: config.maxTokens,
           messages: [{ role: 'system', content: system }, ...messages],
         }),

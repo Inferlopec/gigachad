@@ -27,13 +27,13 @@ function makeDeps(overrides: Partial<ExtractDeps> = {}): ExtractDeps {
 // ── stripSenderNicknames ───────────────────────────────────────────────────
 
 test('stripSenderNicknames removes exact nickname match (case-insensitive)', () => {
-  assert.equal(stripSenderNicknames('inferlo path of exile 2 dev stream', ['Inferlo']), 'path of exile 2 dev stream');
-  assert.equal(stripSenderNicknames('INFERLO poe2 stream', ['Inferlo']), 'poe2 stream');
-  assert.equal(stripSenderNicknames('Inferlo', ['Inferlo']), '');
+  assert.equal(stripSenderNicknames('alex path of exile 2 dev stream', ['Alex']), 'path of exile 2 dev stream');
+  assert.equal(stripSenderNicknames('ALEX poe2 stream', ['Alex']), 'poe2 stream');
+  assert.equal(stripSenderNicknames('Alex', ['Alex']), '');
 });
 
 test('stripSenderNicknames does not remove substring matches', () => {
-  assert.equal(stripSenderNicknames('inferlopec poe2 guide', ['Inferlo']), 'inferlopec poe2 guide');
+  assert.equal(stripSenderNicknames('alexander poe2 guide', ['Alex']), 'alexander poe2 guide');
 });
 
 test('stripSenderNicknames removes multiple nicknames', () => {
@@ -45,7 +45,7 @@ test('stripSenderNicknames returns query unchanged when no nicknames', () => {
 });
 
 test('stripSenderNicknames collapses leftover spaces', () => {
-  assert.equal(stripSenderNicknames('inferlo  path of exile', ['Inferlo']), 'path of exile');
+  assert.equal(stripSenderNicknames('alex  path of exile', ['Alex']), 'path of exile');
 });
 
 test('stripSenderNicknames handles nicknames with special chars', () => {
@@ -106,7 +106,7 @@ test('extractSearchQuery returns null for short messages without calling LLM', a
     },
   });
   const conversation: ChatMessage[] = [
-    { role: 'user', content: 'Inferlo: hello there' },
+    { role: 'user', content: 'Alex: hello there' },
   ];
   const result = await extractSearchQuery(conversation, deps);
   assert.equal(result, null);
@@ -126,24 +126,24 @@ test('extractSearchQuery returns null on LLM error (graceful degradation)', asyn
     log: (msg) => { logs.push(msg); },
   });
   const conversation: ChatMessage[] = [
-    { role: 'user', content: 'Inferlo: what is the capital of France in 2026?' },
+    { role: 'user', content: 'Alex: what is the capital of France in 2026?' },
   ];
   const result = await extractSearchQuery(conversation, deps);
   assert.equal(result, null);
   assert.ok(logs.length >= 1, 'should log the extraction failure');
-  assert.ok(logs[0].includes('extraction failed'), `unexpected log: ${logs[0]}`);
+  assert.ok(logs[0]!.includes('extraction failed'), `unexpected log: ${logs[0]}`);
 });
 
 test('extractSearchQuery strips sender nickname from query (deterministic)', () => {
   const conversation: ChatMessage[] = [
-    { role: 'user', content: 'Inferlo: what is the capital of France in 2026?' },
+    { role: 'user', content: 'Alex: what is the capital of France in 2026?' },
   ];
   const nicknames = collectNicknames(conversation);
-  assert.deepEqual(nicknames, ['Inferlo']);
-  const simulatedLlmOutput = 'inferlo capital of france 2026';
+  assert.deepEqual(nicknames, ['Alex']);
+  const simulatedLlmOutput = 'alex capital of france 2026';
   const stripped = stripSenderNicknames(simulatedLlmOutput, nicknames);
   assert.equal(stripped, 'capital of france 2026');
-  assert.ok(!stripped.toLowerCase().includes('inferlo'), 'nickname must be removed');
+  assert.ok(!stripped.toLowerCase().includes('alex'), 'nickname must be removed');
 });
 
 test('EXTRACT_SYSTEM contains required instructions', () => {
@@ -152,5 +152,5 @@ test('EXTRACT_SYSTEM contains required instructions', () => {
   assert.ok(EXTRACT_SYSTEM.includes('ключевые слова'), 'must require keywords');
   assert.ok(EXTRACT_SYSTEM.includes('английском'), 'must mention English for tech topics');
   assert.ok(EXTRACT_SYSTEM.includes('КТО спрашивает'), 'must explain nickname is the asker');
-  assert.ok(EXTRACT_SYSTEM.includes('Inferlo'), 'must have an Inferlo example');
+  assert.ok(EXTRACT_SYSTEM.includes('Alex'), 'must have an Alex example');
 });

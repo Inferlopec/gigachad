@@ -284,7 +284,7 @@ test('maybeSearch: sender nickname is stripped from the search query', async (t)
     // query; the deterministic stripSenderNicknames pass must remove it.
     extractQuery: async (conversation) => {
       const { stripSenderNicknames, collectNicknames } = await import('../src/searchQuery.ts');
-      const simulatedLlmOutput = 'Inferlo path of exile 2 dev stream schedule';
+      const simulatedLlmOutput = 'Alex path of exile 2 dev stream schedule';
       return stripSenderNicknames(simulatedLlmOutput, collectNicknames(conversation));
     },
     search: async (query) => {
@@ -294,15 +294,15 @@ test('maybeSearch: sender nickname is stripped from the search query', async (t)
       ];
     },
   });
-  // The message is from sender "Inferlo" (senderNickname in the Message).
+  // The message is from sender "Alex" (senderNickname in the Message).
   await handler(message({
     text: `${mention} when is the PoE2 dev stream today?`,
-    senderNickname: 'Inferlo',
-    senderServerUserId: 'user-inferlo',
+    senderNickname: 'Alex',
+    senderServerUserId: 'user-alex',
   }));
   assert.equal(searchQueries.length, 1);
-  // The nickname "Inferlo" must NOT appear in the SearXNG query.
-  assert.ok(!searchQueries[0]!.toLowerCase().includes('inferlo'),
+  // The nickname "Alex" must NOT appear in the SearXNG query.
+  assert.ok(!searchQueries[0]!.toLowerCase().includes('alex'),
     `nickname leaked into query: ${searchQueries[0]}`);
   assert.ok(searchQueries[0]!.includes('path of exile 2'),
     `topic lost after strip: ${searchQueries[0]}`);
@@ -322,7 +322,7 @@ test('maybeSearch: extractQuery throws → no SearXNG call, no search context, a
     complete: async (system) => { calls.push({ system }); return 'answer'; },
     send: async (_ch, text) => { sent.push(text); },
     typing: () => {}, stopTyping: () => {}, log: (msg) => { logs.push(msg); },
-    extractQuery: async () => { throw new Error('LLM request timed out'); },
+    extractQuery: async () => { throw new Error('secret query payload'); },
     search: async () => { searchCalled = true; return []; },
   });
   await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
@@ -332,6 +332,7 @@ test('maybeSearch: extractQuery throws → no SearXNG call, no search context, a
   assert.equal(sent.length, 1);
   assert.equal(sent[0], 'answer'); // answer still sent
   assert.ok(logs.some((l) => l.includes('extraction failed')), 'should log extraction failure');
+  assert.doesNotMatch(logs.join('\n'), /secret/);
 });
 
 test('maybeSearch: search throws → no search context, answer still sent', async (t) => {
@@ -348,7 +349,7 @@ test('maybeSearch: search throws → no search context, answer still sent', asyn
     send: async (_ch, text) => { sent.push(text); },
     typing: () => {}, stopTyping: () => {}, log: (msg) => { logs.push(msg); },
     extractQuery: async () => 'france capital 2026',
-    search: async () => { throw new Error('fetch failed'); },
+    search: async () => { throw new Error('secret search payload'); },
   });
   await handler(message({ text: `${mention} what is the capital of France in 2026?` }));
   assert.equal(calls.length, 1);
@@ -356,6 +357,7 @@ test('maybeSearch: search throws → no search context, answer still sent', asyn
   assert.equal(sent.length, 1);
   assert.equal(sent[0], 'answer');
   assert.ok(logs.some((l) => l.includes('Search failed')), 'should log search failure');
+  assert.doesNotMatch(logs.join('\n'), /secret/);
 });
 
 test('maybeSearch: search returns empty → no search context, answer still sent', async (t) => {

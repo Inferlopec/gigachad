@@ -11,18 +11,26 @@ function integer(env: NodeJS.ProcessEnv, name: string, fallback?: number): numbe
 }
 
 function endpoint(env: NodeJS.ProcessEnv, name: string): string {
-  const url = new URL(required(env, name));
-  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+  const value = required(env, name);
+  try {
+    const url = new URL(value);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new Error('Invalid endpoint');
+    }
+    return url.href.replace(/\/+$/, '');
+  } catch {
+    // URL errors can include supplied values and embedded secrets.
     throw new Error(`${name} must be an HTTP(S) URL without credentials, query or fragment.`);
   }
-  return url.href.replace(/\/+$/, '');
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const config = {
     host: endpoint(env, 'GRYT_HOST'),
+    nickname: required(env, 'GRYT_NICKNAME'),
     channelId: required(env, 'GRYT_ALLOWED_CHANNEL_ID'),
     identityPath: required(env, 'GRYT_IDENTITY_PATH'),
+    promptPath: env.SYSTEM_PROMPT_PATH === undefined ? 'prompts/system.md' : required(env, 'SYSTEM_PROMPT_PATH'),
     botToken: env.GRYT_BOT_TOKEN?.trim() || undefined,
     baseUrl: endpoint(env, 'LLM_BASE_URL'),
     model: required(env, 'LLM_MODEL'),
@@ -31,9 +39,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     maxTokens: integer(env, 'LLM_MAX_TOKENS'),
     timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
     searxngUrl: env.SEARXNG_URL?.trim() || undefined,
-    // Dedicated model for extracting the web-search query from the user's
-    // message. Kept separate from LLM_MODEL so the extraction call (small,
-    // fast) does not compete for the same inference slot as the final answer.
+    // Independently configurable extraction model at the same endpoint.
+    // It may be the same model as LLM_MODEL.
     searchLlmModel: env.SEARCH_LLM_MODEL?.trim() || undefined,
     // Extraction is a tiny single-line task: short output budget and a short
     // timeout so a stalled extraction degrades to "no search" quickly.
@@ -46,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     searchRateWindowMs: integer(env, 'SEARCH_RATE_WINDOW_MS', 60_000),
     searchCacheTtlMs: integer(env, 'SEARCH_CACHE_TTL_MS', 300_000),
   };
+  if (/[\r\n]/.test(config.nickname)) throw new Error('GRYT_NICKNAME must be a single line.');
   if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
   if (config.searchLlmMaxTokens + 256 >= config.searchLlmContextTokens) {
     throw new Error('SEARCH_LLM_MAX_TOKENS must leave room for input.');

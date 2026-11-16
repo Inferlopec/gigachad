@@ -18,7 +18,7 @@ export const EXTRACT_SYSTEM = `Ты — модуль извлечения пои
 - Ответь ровно одной строкой. Без кавычек, без «запрос:», без объяснений.
 - Только ключевые слова и имена; без вопросительных слов, обращений и вежливости.
 - Если вопрос неоднозначен или ссылается на что-то из диалога («а что с этим?», «сколько он весит?») — подставь конкретное имя/тему из последних сообщений.
-- Ник отправителя — это ЧАСТЬ сообщения до «:» (например «Inferlo: глянь ...»). Это тот, КТО спрашивает, а НЕ тема. Не включай его в запрос, если вопрос не задан явно О этом человеке (например «во сколько стрим у Inferlo?» — тогда Inferlo в запрос).
+- Ник отправителя — это ЧАСТЬ сообщения до «:» (например «Alex: глянь ...»). Это тот, КТО спрашивает, а НЕ тема. Не включай его в запрос, если вопрос не задан явно О этом человеке (например «во сколько стрим у Alex?» — тогда Alex в запрос).
 - Для технических тем (IT, наука, продукты) ищи на английском; для локальных новостей, людей и событий — на языке вопроса.
 - Если веб-поиск НЕ нужен — ответь ровно: NOSEARCH. Это: приветствия и благодарности, уточнения к предыдущему ответу, тривиальные факты, вопросы о том, что уже обсуждалось, и любые просьбы без фактологического вопроса.
 
@@ -27,7 +27,7 @@ export const EXTRACT_SYSTEM = `Ты — модуль извлечения пои
 «что нового по Rust в этом году?» → rust 2026 release changelog
 «спасибо, помогло» → NOSEARCH
 «а что с этим, который ты упоминал?» (контекст: квантовые компьютеры) → quantum computers latest research
-«Inferlo: глянь во сколько сегодня dev-стрим по Path of Exile 2?» → path of exile 2 dev stream schedule today`;
+«Alex: глянь во сколько сегодня dev-стрим по Path of Exile 2?» → path of exile 2 dev stream schedule today`;
 
 export type ExtractDeps = {
   config: SearchLlmConfig;
@@ -58,14 +58,14 @@ function parseQuery(raw: string): string | null {
 }
 
 // The extraction model sees the whole recent conversation, where every
-// user message is prefixed with the sender's nickname ("Inferlo: ...").
+// user message is prefixed with the sender's nickname ("Alex: ...").
 // It can fold that nickname into the query even when the person is the
 // asker, not the topic. This deterministic pass removes exact nickname
 // matches from the query so the result does not depend on the model
 // honouring the prompt rule.
 //
-// Matching is word-boundary based (case-insensitive): "inferlo" is removed
-// from "inferlo poe2 stream" but "inferlopec" is left alone (it is a
+// Matching is word-boundary based (case-insensitive): "alex" is removed
+// from "alex poe2 stream" but "alexander" is left alone (it is a
 // different token, not the nickname as a substring).
 export function stripSenderNicknames(query: string, nicknames: string[]): string {
   if (!nicknames.length) return query;

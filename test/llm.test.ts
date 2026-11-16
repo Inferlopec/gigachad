@@ -16,7 +16,7 @@ async function server(t: test.TestContext, handler: (req: IncomingMessage, res: 
   return `http://127.0.0.1:${address.port}/v1`;
 }
 const config = {
-  baseUrl: '', apiKey: 'test-key', model: 'qwen3.8-27b-unleashed-web',
+  baseUrl: '', apiKey: 'test-key', model: 'answer-model',
   timeoutMs: 2000, maxTokens: 1024, contextTokens: 131000,
 };
 
@@ -47,7 +47,6 @@ test('LLM sends configured Chat Completions request and reads answer', async (t)
   assert.equal(auth, 'Bearer test-key');
   assert.deepEqual(payload, {
     model: config.model, stream: false, max_tokens: 1024,
-    chat_template_kwargs: { enable_thinking: false },
     messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'hello' }],
   });
 });
@@ -174,7 +173,7 @@ test('context guard rejects oversized input and shutdown aborts requests', async
 
 test('configuration requires channel, credentials and valid budgets', () => {
   const env = {
-    GRYT_HOST: 'https://chat.inferlo.xyz', GRYT_ALLOWED_CHANNEL_ID: 'channel-1',
+    GRYT_HOST: 'https://chat.example.com', GRYT_NICKNAME: 'Assistant', GRYT_ALLOWED_CHANNEL_ID: 'channel-1',
     GRYT_IDENTITY_PATH: './data/identity.json', LLM_BASE_URL: 'https://example.com/v1',
     LLM_MODEL: config.model, LLM_API_KEY: 'test', LLM_CONTEXT_TOKENS: '131000',
     LLM_MAX_TOKENS: '1024', LLM_TIMEOUT_MS: '60000',
@@ -191,7 +190,7 @@ test('configuration requires channel, credentials and valid budgets', () => {
 });
 
 test('completeSearchQuery sends configured request with small budget and no retry', async (t) => {
-  let payload: { model: string; max_tokens: number; chat_template_kwargs: { enable_thinking: boolean } } | undefined;
+  let payload: { model: string; max_tokens: number } | undefined;
   const baseUrl = await server(t, async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -199,14 +198,14 @@ test('completeSearchQuery sends configured request with small budget and no retr
     res.end(JSON.stringify({ choices: [{ message: { content: '  iphone 16 weight  ' } }] }));
   });
   const searchConfig = {
-    baseUrl, apiKey: 'search-key', model: 'qwen3.8-27b-unleashed-2',
+    baseUrl, apiKey: 'search-key', model: 'search-model',
     timeoutMs: 2000, maxTokens: 100, contextTokens: 8192,
   };
   const result = await completeSearchQuery(searchConfig, 'extract system', [{ role: 'user', content: 'how much does iphone 16 weigh?' }]);
   assert.equal(result, 'iphone 16 weight');
-  assert.equal(payload?.model, 'qwen3.8-27b-unleashed-2');
+  assert.equal(payload?.model, 'search-model');
   assert.equal(payload?.max_tokens, 100);
-  assert.deepEqual(payload?.chat_template_kwargs, { enable_thinking: false });
+  assert.equal(Object.hasOwn(payload!, 'chat_template_kwargs'), false);
 });
 
 test('completeSearchQuery does not retry on HTTP 500', async (t) => {
@@ -266,9 +265,9 @@ test('completeSearchQuery respects shutdown abort', async () => {
 
 test('configuration enforces search-LLM pairing and budget', () => {
   const env = {
-    GRYT_HOST: 'https://chat.inferlo.xyz', GRYT_ALLOWED_CHANNEL_ID: 'channel-1',
+    GRYT_HOST: 'https://chat.example.com', GRYT_NICKNAME: 'Assistant', GRYT_ALLOWED_CHANNEL_ID: 'channel-1',
     GRYT_IDENTITY_PATH: './data/identity.json', LLM_BASE_URL: 'https://example.com/v1',
-    LLM_MODEL: 'qwen3.8-27b-unleashed-1', LLM_API_KEY: 'test', LLM_CONTEXT_TOKENS: '131000',
+    LLM_MODEL: 'answer-model', LLM_API_KEY: 'test', LLM_CONTEXT_TOKENS: '131000',
     LLM_MAX_TOKENS: '1024', LLM_TIMEOUT_MS: '60000',
   };
   // SEARXNG_URL set without SEARCH_LLM_MODEL must throw.
@@ -277,8 +276,8 @@ test('configuration enforces search-LLM pairing and budget', () => {
     /SEARCH_LLM_MODEL/,
   );
   // Both set: ok.
-  const ok = loadConfig({ ...env, SEARXNG_URL: 'http://searxng:8080', SEARCH_LLM_MODEL: 'qwen3.8-27b-unleashed-2' });
-  assert.equal(ok.searchLlmModel, 'qwen3.8-27b-unleashed-2');
+  const ok = loadConfig({ ...env, SEARXNG_URL: 'http://searxng:8080', SEARCH_LLM_MODEL: 'search-model' });
+  assert.equal(ok.searchLlmModel, 'search-model');
   assert.equal(ok.searchLlmTimeoutMs, 8000);
   assert.equal(ok.searchLlmMaxTokens, 100);
   assert.equal(ok.searchLlmContextTokens, 8192);

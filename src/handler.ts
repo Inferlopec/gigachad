@@ -111,7 +111,7 @@ export function createHandler(deps: Dependencies) {
     } catch (error) {
       deps.log(stage === 'LLM request'
         ? `LLM request failed: ${describeLlmFailure(error)}.`
-        : 'System prompt failed. Check that prompts/system.md is readable and nonempty.');
+        : 'System prompt failed. Check that SYSTEM_PROMPT_PATH is readable and nonempty.');
       await send('I couldn’t complete that request. Please try again later.');
     } finally {
       clearInterval(typingTimer);
@@ -139,16 +139,16 @@ async function maybeSearch(
   let query: string | null;
   try {
     query = await deps.extractQuery(conversation);
-  } catch (error) {
-    deps.log(`Search query extraction failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
+  } catch {
+    deps.log('Search query extraction failed; answering without search.');
     return '';
   }
   if (!query) return '';
   try {
     const results = await deps.search(query);
     if (results.length) return formatSearchResults(query, results);
-  } catch (error) {
-    deps.log(`Search failed: ${error instanceof Error ? error.message : 'unknown error'}.`);
+  } catch {
+    deps.log('Search failed; answering without search.');
   }
   return '';
 }

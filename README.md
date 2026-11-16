@@ -1,6 +1,6 @@
 # gigachad
 
-A minimal mention-only AI bot for `https://chat.inferlo.xyz`. Built with `@gryt/bot` and an OpenAI-compatible Chat Completions endpoint.
+A minimal mention-only AI bot for Gryt servers. Built with `@gryt/bot` and an OpenAI-compatible Chat Completions endpoint.
 
 - Responds only to direct ID-based mentions in `GRYT_ALLOWED_CHANNEL_ID`
 - Each request includes the 5 most recent messages from the configured channel (including the trigger)
@@ -27,11 +27,14 @@ chmod 600 .env
 
 Edit `.env` and `prompts/system.md` before starting:
 
+- `GRYT_HOST` and `GRYT_NICKNAME` — your Gryt server and bot display name
 - `GRYT_ALLOWED_CHANNEL_ID` — the channel where the bot responds (see below)
-- `LLM_API_KEY` — your API key
-- Review the supplied endpoint, model, and limits
+- `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` — your OpenAI-compatible endpoint, model and API key
+- `LLM_CONTEXT_TOKENS` and `LLM_MAX_TOKENS` — limits supported by your model
+- `SYSTEM_PROMPT_PATH` — prompt file (default `prompts/system.md`); container paths must be inside the mounted prompt directory
+- Set both search settings as described below, or clear `SEARXNG_URL` for LLM-only replies
 
-**Finding the channel ID:** In Gryt, right-click the target channel → **Copy channel mention**. Paste it into a text editor: `[#channel](channel:chat.inferlo.xyz/CHANNEL_ID)`. Use only `CHANNEL_ID` (the part after the final `/`, without the closing `)`). If the link has no server host (`channel:CHANNEL_ID`), use the part after `channel:`.
+**Finding the channel ID:** In Gryt, right-click the target channel → **Copy channel mention**. Paste it into a text editor: `[#channel](channel:chat.example.com/CHANNEL_ID)`. Use only `CHANNEL_ID` (the part after the final `/`, without the closing `)`). If the link has no server host (`channel:CHANNEL_ID`), use the part after `channel:`.
 
 Start the bot:
 
@@ -51,11 +54,11 @@ To enable web search, set `SEARXNG_URL=http://searxng:8080` in `.env`
 ### Register the bot
 
 1. Start the bot with valid configuration. It creates its identity and waits for approval.
-2. A Gryt administrator with `manage_bots` opens **Server settings → Bots**, enables bot requests if needed, and approves **gigachad** with only `read_messages` and `send_messages`.
+2. A Gryt administrator with `manage_bots` opens **Server settings → Bots**, enables bot requests if needed, and approves the bot under its configured nickname with only `read_messages` and `send_messages`.
 3. Ensure the bot can access the configured channel. Approval takes effect while the process runs.
-4. In that channel, select gigachad from mention autocomplete and send a question.
+4. In that channel, select the configured bot nickname from mention autocomplete and send a question.
 
-> **Alternative:** An administrator can pre-create a registration named gigachad and supply its single-use token in `GRYT_BOT_TOKEN`. Remove the token from `.env` after the first successful claim.
+> **Alternative:** An administrator can pre-create a registration using the configured nickname and supply its single-use token in `GRYT_BOT_TOKEN`. Remove the token from `.env` after the first successful claim.
 
 ### Update
 
@@ -114,7 +117,7 @@ Store backups outside the repository.
 
 ### System prompt
 
-Edit `prompts/system.md` directly. The bot reads it for every request — no restart needed. Compose mounts the directory read-only so editor saves remain visible. Missing or empty prompts fail the request with a brief error.
+Edit the file selected by `SYSTEM_PROMPT_PATH` (default `prompts/system.md`). The bot reads it for every request — no restart needed. Compose mounts the directory read-only so editor saves remain visible. Missing or empty prompts fail the request with a brief error.
 
 `prompts/system.md` is **not committed** to git (see `.gitignore`); the repo ships a template, `prompts/system.md.example`. On a fresh install, copy the template to create your local prompt:
 
@@ -158,8 +161,9 @@ Stop with Ctrl+C.
 
 The bot can search the web via a self-hosted [SearXNG](https://docs.searxng.org/) instance.
 Search is **disabled** unless both `SEARXNG_URL` **and** `SEARCH_LLM_MODEL` are set in `.env`.
-The SearXNG container is started by `docker compose` regardless; the bot simply does not
-call it when either variable is empty.
+The SearXNG container is started by `docker compose` regardless. Clear
+`SEARXNG_URL` to disable search in the bot; setting a URL without
+`SEARCH_LLM_MODEL` is a configuration error.
 
 When enabled, the search flow is:
 
@@ -183,19 +187,12 @@ results (higher quality), at the cost of up to `SEARCH_LLM_TIMEOUT_MS`
 the LLM starts. In practice the extraction takes 2–3 s and SearXNG 1–3 s, so
 the typical added latency is 3–6 s.
 
-#### Why a separate model?
+#### Choosing the extraction model
 
-The extraction task is tiny (one line of output, ≤ 100 tokens) and fast
-(≤ 8 s timeout). Giving it a dedicated model replica means:
-
-- It does **not** compete for the same inference slot as the final answer
-  (which can take up to 120 s).
-- It can use a much smaller context budget (8 192 tokens vs 131 000).
-- A failed or slow extraction degrades to "no search" without retrying,
-  keeping the total latency bounded.
-
-Set `SEARCH_LLM_MODEL` to one of your three `qwen3.8-27b-unleashed-{1,2,3}`
-replicas, and `LLM_MODEL` to a different one.
+`SEARCH_LLM_MODEL` selects a model at the same endpoint as `LLM_MODEL`. It may
+use the same model or another one supported by your endpoint. No dedicated
+replica or model family is required. Query extraction uses its own context,
+output and timeout budgets, and does not retry on failure.
 
 #### Throttling
 
@@ -219,8 +216,7 @@ being overwhelmed:
 #### Enable search
 
 1. Set `SEARXNG_URL=http://searxng:8080` in `.env`.
-2. Set `SEARCH_LLM_MODEL=qwen3.8-27b-unleashed-2` (or another replica,
-   different from `LLM_MODEL`).
+2. Set `SEARCH_LLM_MODEL` to a model supported by your configured LLM endpoint.
 3. `docker compose up -d --force-recreate gigachad`
 
 That's it — the SearXNG container is already defined in `compose.yaml` and
@@ -268,13 +264,20 @@ src/
   llm.ts         # OpenAI-compatible API client (complete + completeSearchQuery)
   search.ts      # SearXNG client with rate limiting, circuit breaker, cache
   searchQuery.ts # query extraction via dedicated LLM model
-  index.ts       # entry point, SDK wiring
+  gryt.ts        # SDK lifecycle and self-ID adapter
+  runtime.ts     # handler, LLM and optional search wiring
+  process.ts     # configuration and process signal lifecycle
+  index.ts       # executable entry point
 prompts/
   system.md.example # template for the system prompt (committed)
   system.md         # active system prompt (local only, git-ignored, hot-reloaded)
 searxng-settings/
   settings.yml   # SearXNG configuration (JSON format enabled)
 test/
+  config.test.ts
+  gryt.test.ts
+  process.test.ts
+  runtime.test.ts
   handler.test.ts
   identity.test.ts
   llm.test.ts
@@ -285,9 +288,9 @@ test/
 ### Notes
 
 - **Typing indicator:** Refreshed every five seconds while a request and its reply send are pending, then cleared when the operation finishes or fails.
-- **Thinking disabled:** Each LLM request sends `chat_template_kwargs: { "enable_thinking": false }`, the [Qwen/vLLM setting](https://qwen.readthedocs.io/en/stable/deployment/vllm.html) for disabling thinking. The inference server and model chat template must support this setting.
+- **Portable LLM requests:** Requests use OpenAI-compatible Chat Completions fields without model-specific template parameters. Configure model reasoning behavior at your endpoint if needed.
 - **Local LLM timeout:** `LLM_TIMEOUT_MS` defaults to `120000` (two minutes) when omitted. The example configuration uses the same value. Existing `.env` values still take precedence; set this to `120000` if an older installation uses `60000`, then run `docker compose up -d --force-recreate`. Increase it further if your model needs more time with conversation history. One request runs at a time; concurrent mentions are silently dropped (the typing indicator shows the bot is working).
-- **Context window:** 131,000 tokens (input + output). `LLM_MAX_TOKENS` is the separate output budget. Input is bounded conservatively using UTF-8 byte length plus framing/output reserves, not a model-specific tokenizer.
+- **Context window:** Set `LLM_CONTEXT_TOKENS` to your model’s supported input-plus-output budget. `LLM_MAX_TOKENS` is the separate output budget. Input is bounded conservatively using UTF-8 byte length plus framing/output reserves, not a model-specific tokenizer.
 - **Conversation history:** The bot keeps the latest 20 messages in memory (including replies it successfully sends) and sends only the 5 most recent to the model. History resets on restart; it does not fetch older channel messages.
 - **Mention matching:** Links of the form `[@label](mention:<server-user-id>)`. Labels alone, code examples, escaped links, images, role mentions, `@everyone`, and `@here` do not trigger.
 - **Reliability:** LLM calls have a total timeout, reject HTTP errors and invalid/empty answers, cap response bodies at 1 MiB. Transient failures (HTTP 5xx, timeout, network errors) are retried once after a 1s backoff before failing. Permanent failures (HTTP 4xx, invalid JSON, budget errors) are not retried. Replies fit Gryt's 4,000 UTF-16-unit limit. SDK reconnection is automatic. Logs omit tokens, API keys, and message bodies.
@@ -297,7 +300,7 @@ test/
 
 Pinned: `@gryt/bot@0.3.1` (commit `05800d0d`). Verified APIs: `GrytBot`, `loadIdentity`, message events, `send`, `permissions`, `channels`, `socket`.
 
-The SDK exposes no public bot server-ID getter. A small adapter listens to `server:joined` and reads the `serverUserId` claim from its access token. Review this adapter when upgrading the SDK.
+The SDK exposes no public bot server-ID getter. With a preloaded identity its socket is created synchronously; the adapter checks this assumption. Its `ready` event fires only once, so the adapter clears self-ID on disconnect and restores it on each join. Shutdown also settles startup while approval is pending. The adapter in `src/gryt.ts` listens to `server:joined` and reads the `serverUserId` claim from its access token. Review this adapter when upgrading the SDK.
 
 References:
 

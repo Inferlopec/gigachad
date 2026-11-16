@@ -9,6 +9,16 @@ Gigachad is a standalone AI bot for supported Gryt servers. It needs no Gryt ser
 - **CLI:** TypeScript setup/config commands inside the application image; a small host-side wrapper manages Docker Compose and forwards interactive commands. No Docker socket inside the bot container.
 - **Search:** optional SearXNG integration; managed Compose service or external endpoint. Search failure must not prevent an LLM-only reply.
 
+Runtime code boundaries:
+
+- `src/index.ts` invokes `runProcess`; `src/process.ts` loads validated configuration and owns process signal handlers.
+- `src/runtime.ts` connects the existing handler, LLM and optional search modules through injected dependencies. Its stop operation aborts requests and drains message handlers.
+- `src/gryt.ts` owns identity loading, SDK construction and lifecycle, including the pinned SDK's raw-socket self-ID workaround. Disconnect clears identity availability; each join restores it independently of the one-time `ready` event. Stop settles startup even while approval is pending.
+- `src/config.ts` is the shared env validation source for runtime and future CLI. `GRYT_NICKNAME` is required; `SYSTEM_PROMPT_PATH` defaults to `prompts/system.md`. Identity and prompt remain separate files. Endpoint and SDK errors are logged without raw supplied values or server payloads.
+
+Gryt, LLM and search boundaries can be mocked without connecting to live services.
+The generic LLM transport sends no provider-specific chat-template parameters.
+
 ## Deployment
 
 - Linux amd64, Docker Compose v2, prebuilt runtime image from `ghcr.io/inferlopec/gigachad`.
