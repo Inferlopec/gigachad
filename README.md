@@ -275,7 +275,7 @@ test/
   identity.test.ts
   llm.test.ts
   search.test.ts
-  searchQuery.ts
+  searchQuery.test.ts
 ```
 
 ### Notes

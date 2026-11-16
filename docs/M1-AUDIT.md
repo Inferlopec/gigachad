@@ -4,6 +4,19 @@ Audit date: 2026-11-16. Source baseline: `36b574acd7bce8b4b951347089253d43c396ea
 on `next`. Tracking: [#1](https://github.com/Inferlopec/gigachad/issues/1).
 GitHub issues, rather than this snapshot, own current task status.
 
+## Baseline follow-up — 2026-11-16
+
+After maintainer approval to perform preparation, `test/searchQuery.ts` was
+renamed to `test/searchQuery.test.ts` without changing test contents. The standard
+`npm test` now runs all 61 tests. A clean `npm ci --no-audit --no-fund` on Node
+24.22.2 / npm 11.19.1 succeeded, followed by passing `npm run typecheck`,
+`npm test` (61/61) and `npm run build`. No application behavior changed.
+AGENTS.md now explicitly requires standard test discovery and integration of
+audit evidence before issue closure. The original audit below records the
+earlier observations; its discovery and fresh-install gaps are resolved by
+this follow-up. Deployment and live-integration verification remain outstanding
+in their owning roadmap tasks.
+
 ## Environment and checks
 
 - GitHub CLI authenticated as `Inferlopec`; repository permission `ADMIN`.
