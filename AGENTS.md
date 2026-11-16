@@ -5,7 +5,14 @@
 - Build the first public release (v1.0.0) from the existing experimental bot. Refactor, do not rewrite.
 - Work on `next`; keep `main` unchanged until release approval. Complete one roadmap milestone at a time.
 - Target Linux amd64 with Docker Compose v2. No ARM64, legacy config compatibility or migration tooling.
-- See `ROADMAP.md` for acceptance criteria and `docs/ARCHITECTURE.md` for design boundaries.
+- See `ROADMAP.md` for milestone order and issue structure; `docs/ARCHITECTURE.md` defines design boundaries.
+
+## Work tracking
+
+- GitHub Milestones (M1–M5) define release stages; Issues define scoped work and acceptance criteria. GitHub is the source of truth for task status.
+- Work on one issue at a time within the active milestone; reference its number in commits/PRs. Do not expand scope without agreement.
+- Close an issue only after its acceptance criteria are verified and the change is integrated into `next`. Advance to the next milestone only when the current one is complete.
+- If GitHub access is unavailable, follow the issue scope in `ROADMAP.md` or the assigned prompt; report status rather than assuming an issue is closed.
 
 ## Architecture and behavior
 
