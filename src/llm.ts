@@ -1,6 +1,6 @@
-import type { Config } from './config.ts';
+import type { LlmConfig } from './config.ts';
 
-type LlmConfig = Pick<Config, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
+type CompletionConfig = Pick<LlmConfig, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens' | 'contextTokens'>;
 // Search-query extraction shares the Chat Completions transport and inherits
 // the main LLM API settings by default; callers may override them and use a
 // smaller request budget.
@@ -51,7 +51,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 // go through here so request shape, timeouts, budget and abort handling stay
 // identical. Returns the trimmed `choices[0].message.content` string.
 async function callChatCompletions(
-  config: Pick<LlmConfig, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens'>,
+  config: Pick<CompletionConfig, 'baseUrl' | 'apiKey' | 'model' | 'timeoutMs' | 'maxTokens'>,
   system: string,
   messages: ChatMessage[],
   shutdown: AbortSignal | undefined,
@@ -110,7 +110,7 @@ async function callChatCompletions(
 }
 
 export async function complete(
-  config: LlmConfig,
+  config: CompletionConfig,
   system: string,
   conversation: ChatMessage[],
   shutdown?: AbortSignal,
@@ -126,6 +126,17 @@ export async function complete(
     throw new Error('Input exceeds conservative context budget');
   }
   return callChatCompletions(config, system, messages, shutdown, retries);
+}
+
+// Connectivity probe used by setup. It uses the same generic transport, sends
+// no provider-specific fields, performs one request and discards the answer.
+export async function testLlmConnection(
+  config: LlmConfig,
+  system: string,
+  shutdown?: AbortSignal,
+): Promise<void> {
+  await callChatCompletions({ ...config, maxTokens: Math.min(config.maxTokens, 16) }, system,
+    [{ role: 'user', content: 'Reply with OK.' }], shutdown, 0);
 }
 
 // Query extraction for web search. Unlike `complete` it:

@@ -17,7 +17,15 @@ Runtime code boundaries:
 - `src/identityLease.ts` provides atomic filesystem ownership beside the canonical identity path, shared by runtime and setup before identity loading. Stop releases ownership after disconnect; an in-flight SDK identity write retains ownership until it settles. Failed shutdown retains the lock. Crash recovery requires stopping all owners and manually removing only the adjacent empty `.lock` directory; identity is never removed or regenerated for lock recovery.
 - `src/registration.ts` exposes terminal-independent registration with structured progress, cancellation and text-channel results through the Gryt integration. The caller holds the registration session until channel selection/save finishes, then closes it; no message handling or LLM runtime is started.
 - `src/setup.ts` orchestrates the M2.1 Gryt-only wizard; `src/cli.ts` owns terminal input, hidden token entry and signals. `src/setupStore.ts` reads the selected dotenv file and explicitly saves validated Gryt settings with a private temporary file and atomic rename. It refuses detected concurrent edits, preserves unrelated setting values, rewrites formatting/comments and removes the single-use token on save. It does not require LLM settings for this partial setup. Relative paths use the process working directory.
-- `src/config.ts` is the shared env validation source for runtime and future CLI. `GRYT_NICKNAME` is required; `SYSTEM_PROMPT_PATH` defaults to `prompts/system.md`. Identity and prompt remain separate files. Endpoint and SDK errors are logged without raw supplied values or server payloads.
+- `src/config.ts` is the shared env validation source for runtime and CLI, with a Gryt-independent `loadLlmConfig` for the M2.2 wizard. `GRYT_NICKNAME` is required at runtime; `SYSTEM_PROMPT_PATH` defaults to `prompts/system.md`. Identity and prompt remain separate files. Endpoint and SDK errors are logged without raw supplied values or server payloads.
+- `src/llmSetup.ts` owns terminal-independent LLM connectivity checks with structured safe results, progress and cancellation. `src/llmSetupStore.ts` reads the selected dotenv and prompt, stages drafts, and saves only validated settings after explicit confirmation. Prompt edits create a new private version beside the active path; dotenv is atomically switched to it after the file is complete. Cancelled edits preserve prior files, concurrent edits are detected, and prompt versions are retained.
+- `src/cli.ts` owns hidden key entry, multiline prompt entry and signal handling. For `setup-llm`, `.end` terminates prompt input and `..end` represents a literal `.end` line. LLM checks use the shared OpenAI-compatible transport, send no provider-specific fields, and do not retry.
+
+LLM prompt validation reserves the full configured output budget before a probe
+or save; only the probe's actual request uses the short output limit. During
+save, cancellation before the final dotenv rename removes prepared files and
+preserves the active configuration. A successful rename commits the save;
+cancellation arriving afterwards does not undo it.
 
 Gryt, LLM and search boundaries can be mocked without connecting to live services.
 The generic LLM transport sends no provider-specific chat-template parameters.

@@ -152,8 +152,7 @@ Saving rewrites the selected dotenv file with mode `0600`, preserving other
 setting values but replacing comments/formatting and removing `GRYT_BOT_TOKEN`.
 The token is only used for the setup connection. Existing environment variables
 are not imported into the wizard: it reads the selected file. Setup does not
-start the bot or configure the LLM/prompt; complete those settings using the
-current user guide until M2.2/M2.3 are implemented.
+start the bot or configure the LLM/prompt.
 
 Compiled entry: `node dist/cli.js setup [--env-file PATH]` after `npm run build`.
 An interactive terminal is required. Installer/container forwarding, host
@@ -163,6 +162,30 @@ results and progress, cancellation and explicit save/cancel for settings.
 A simple full-screen TUI is a post-v1.0 direction and will reuse those actions;
 it is outside v1.0 acceptance. See [ROADMAP.md](ROADMAP.md) and the
 [CLI boundaries](docs/ARCHITECTURE.md#cli-boundaries-m2m3).
+
+### CLI: LLM and prompt setup (M2.2)
+
+After Gryt setup, configure the OpenAI-compatible API and system prompt with:
+
+```sh
+npm run setup-llm
+# Or select another dotenv file:
+npm run setup-llm -- --env-file /path/to/bot.env
+```
+
+The wizard asks for API base URL, model, hidden API key, context/output limits
+and timeout. It tests the current draft with one short Chat Completions request.
+If the test fails, you can retry, change the draft, explicitly save without a
+successful test, or cancel. Prompt edits use multiline input; finish with `.end`
+on a line by itself, or enter `..end` for a literal `.end` line. Saving requires
+confirmation. Ctrl+C leaves the saved dotenv and prompt untouched.
+
+Prompt saves create a new private `system.<id>.md` version beside the current
+prompt and atomically switch `SYSTEM_PROMPT_PATH` in dotenv. Earlier prompt
+versions remain available. Settings and prompts use the selected dotenv and
+working directory; unrelated settings are preserved, while comments and
+formatting are rewritten. Restart or recreate the bot container to apply the
+new dotenv values. Compiled entry: `node dist/cli.js setup-llm [--env-file PATH]`.
 
 Runtime and setup share an atomic lock beside the identity file
 (`<identity-path>.lock`). A second process fails before loading the identity or

@@ -78,10 +78,46 @@ export function loadChannelId(value: string): string {
   return singleLine({ GRYT_ALLOWED_CHANNEL_ID: value }, 'GRYT_ALLOWED_CHANNEL_ID');
 }
 
+export type LlmConfig = {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  contextTokens: number;
+  maxTokens: number;
+  timeoutMs: number;
+};
+
+export function loadLlmEndpoint(value: string): string {
+  return endpoint({ LLM_BASE_URL: value }, 'LLM_BASE_URL');
+}
+
+// Match the runtime's conservative byte budget, reserving the full configured
+// output even though the setup probe requests only a short answer.
+export function validateLlmPrompt(config: LlmConfig, prompt: string): void {
+  if (!prompt.trim()) throw new Error('System prompt must not be empty.');
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(prompt)) throw new Error('System prompt contains unsupported control characters.');
+  const inputBytes = Buffer.byteLength(prompt, 'utf8') + Buffer.byteLength('Reply with OK.', 'utf8') + 32;
+  if (inputBytes + config.maxTokens + 256 > config.contextTokens) {
+    throw new Error('Prompt and connection check exceed the configured context budget.');
+  }
+}
+
+export function loadLlmConfig(env: NodeJS.ProcessEnv): LlmConfig {
+  const config = {
+    baseUrl: loadLlmEndpoint(required(env, 'LLM_BASE_URL')),
+    model: singleLine(env, 'LLM_MODEL'),
+    apiKey: singleLine(env, 'LLM_API_KEY'),
+    contextTokens: integer(env, 'LLM_CONTEXT_TOKENS'),
+    maxTokens: integer(env, 'LLM_MAX_TOKENS'),
+    timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
+  };
+  if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
+  return config;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
-  const baseUrl = endpoint(env, 'LLM_BASE_URL');
-  const model = required(env, 'LLM_MODEL');
-  const apiKey = required(env, 'LLM_API_KEY');
+  const llm = loadLlmConfig(env);
+  const { baseUrl, model, apiKey } = llm;
   const searchEnabled = boolean(env, 'SEARCH_ENABLED', false);
   const config = {
     ...loadGrytConfig(env),
@@ -90,9 +126,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     baseUrl,
     model,
     apiKey,
-    contextTokens: integer(env, 'LLM_CONTEXT_TOKENS'),
-    maxTokens: integer(env, 'LLM_MAX_TOKENS'),
-    timeoutMs: integer(env, 'LLM_TIMEOUT_MS', 120_000),
+    contextTokens: llm.contextTokens,
+    maxTokens: llm.maxTokens,
+    timeoutMs: llm.timeoutMs,
     searchEnabled,
     // Search query extraction inherits the main API settings unless explicitly
     // overridden. These separate fields let the future CLI configure a search
@@ -112,7 +148,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     searchCacheTtlMs: searchEnabled ? integer(env, 'SEARCH_CACHE_TTL_MS', 300_000) : 300_000,
   };
   if (/[\r\n]/.test(config.nickname)) throw new Error('GRYT_NICKNAME must be a single line.');
-  if (config.maxTokens + 256 >= config.contextTokens) throw new Error('LLM_MAX_TOKENS must leave room for input.');
   if (searchEnabled && config.searchLlmMaxTokens + 256 >= config.searchLlmContextTokens) {
     throw new Error('SEARCH_LLM_MAX_TOKENS must leave room for input.');
   }
