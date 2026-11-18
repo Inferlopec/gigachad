@@ -75,7 +75,7 @@ export async function runSetup(options: {
       return { status: 'cancelled' };
     }
     await store.save(config, channelId);
-    terminal.write('Gryt settings saved. Bot is not started. LLM/prompt setup belongs to M2.2.');
+    terminal.write('Gryt settings saved. Bot is not started. The complete setup wizard can configure the LLM and prompt.');
     return { status: 'saved' };
   } catch {
     if (signal.aborted) {

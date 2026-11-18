@@ -1,14 +1,14 @@
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
+import { runConfigManagement } from './configManagement.ts';
 import { runLlmSetup } from './llmSetup.ts';
-import { runSetup } from './setup.ts';
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const command = args[0];
-  if (!['setup', 'setup-llm'].includes(command ?? '') ||
+  if (!['setup', 'config', 'setup-llm'].includes(command ?? '') ||
       (args.length !== 1 && !(args.length === 3 && args[1] === '--env-file' && args[2]))) {
-    console.error('Usage: node dist/cli.js <setup|setup-llm> [--env-file PATH]');
+    console.error('Usage: node dist/cli.js <setup|config|setup-llm> [--env-file PATH]');
     return 1;
   }
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -45,11 +45,9 @@ async function main(): Promise<number> {
   };
   try {
     const terminalActions = { write: (message: string) => console.log(message), ask };
-    const result = command === 'setup'
-      ? await runSetup({ envPath: args[2] ?? '.env', signal: controller.signal, terminal: terminalActions })
-      : await runLlmSetup({ envPath: args[2] ?? '.env', signal: controller.signal, terminal: {
+    const terminalWithMultiline = {
         ...terminalActions,
-        askMultiline: async (label) => {
+        askMultiline: async (label: string) => {
           controller.signal.throwIfAborted();
           console.log(label);
           const lines: string[] = [];
@@ -60,7 +58,10 @@ async function main(): Promise<number> {
           }
           return lines.join('\n');
         },
-      } });
+      };
+    const result = command === 'setup' || command === 'config'
+      ? await runConfigManagement({ command, envPath: args[2] ?? '.env', signal: controller.signal, terminal: terminalWithMultiline })
+      : await runLlmSetup({ envPath: args[2] ?? '.env', signal: controller.signal, terminal: terminalWithMultiline });
     return result.status === 'failed' ? 1 : result.status === 'cancelled' ? 130 : 0;
   } finally {
     closing = true;

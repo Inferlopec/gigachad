@@ -35,3 +35,14 @@ test('LLM setup CLI requires TTY before reading configuration', async (t) => {
   assert.doesNotMatch(result.stdout + result.stderr, /private-key/);
   assert.deepEqual(await readdir(dir), ['.env']);
 });
+
+test('config CLI requires TTY before reading configuration', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gigachad-cli-config-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, '.env'), 'LLM_API_KEY=private-key\n');
+  const result = spawnSync(process.execPath, [cli, 'config'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /interactive terminal/);
+  assert.doesNotMatch(result.stdout + result.stderr, /private-key/);
+  assert.deepEqual(await readdir(dir), ['.env']);
+});

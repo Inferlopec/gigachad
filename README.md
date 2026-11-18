@@ -129,63 +129,53 @@ Your local edits stay out of version control, so `git pull --ff-only` during upd
 
 ## Developer Guide
 
-### CLI: Gryt setup (M2.1)
+### CLI: setup and configuration (M2)
 
-With Node.js 24 and installed dependencies, stop any bot using the same identity
-and run:
+With Node.js 24 and installed dependencies, use the complete setup wizard or
+edit selected sections of an existing configuration:
 
 ```sh
 npm run setup
-# Or select another dotenv file:
-npm run setup -- --env-file /path/to/bot.env
+npm run config
+# Either command can target another dotenv file:
+npm run config -- --env-file /path/to/bot.env
 ```
 
-The wizard asks for a Gryt HTTP(S) host, nickname and persistent identity path,
-then an optional hidden single-use token. Leave the token blank to wait for
-administrator approval. It lists accessible text channels with a manual ID
-fallback and asks before saving. Ctrl+C cancels; configuration is unchanged,
-but any created identity or completed registration is retained. Always reuse
-that identity path. Relative paths are resolved from the working directory,
-including when a different dotenv file is selected.
+`setup` guides you through Gryt registration and channel selection, the
+OpenAI-compatible LLM and system prompt, and optional web search. Registration
+can use a hidden single-use token or wait for administrator approval. Accessible
+text channels are listed, with manual channel ID entry as a fallback. `config`
+offers Gryt/channel, LLM/prompt and search sections. Changes stay in memory
+until the final save confirmation; Ctrl+C or declining the save leaves saved
+configuration and prompt files unchanged. Any identity created during Gryt
+registration is retained and should be reused on later setup runs. Setup never
+starts the bot.
 
-Saving rewrites the selected dotenv file with mode `0600`, preserving other
-setting values but replacing comments/formatting and removing `GRYT_BOT_TOKEN`.
-The token is only used for the setup connection. Existing environment variables
-are not imported into the wizard: it reads the selected file. Setup does not
-start the bot or configure the LLM/prompt.
+The LLM section tests the draft with one short Chat Completions request. If the
+test fails, you can retry, change settings, explicitly save without a successful
+test, or cancel. Prompt edits use multiline input; finish with `.end` on a line
+by itself, or enter `..end` for a literal `.end` line. Search is disabled by
+default. When enabled, query extraction can inherit the main LLM settings or
+use separate credentials and model, and the existing search limits are
+configurable. Start the SearXNG backend separately with the Compose `search`
+profile.
 
-Compiled entry: `node dist/cli.js setup [--env-file PATH]` after `npm run build`.
-An interactive terminal is required. Installer/container forwarding, host
-lifecycle commands and `config` are planned for later M2/M3 work.
-Registration actions are separate from terminal dialogs, with structured
-results and progress, cancellation and explicit save/cancel for settings.
-A simple full-screen TUI is a post-v1.0 direction and will reuse those actions;
-it is outside v1.0 acceptance. See [ROADMAP.md](ROADMAP.md) and the
+Saving writes the selected dotenv with mode `0600`, preserves unrelated setting
+values, removes the single-use `GRYT_BOT_TOKEN`, and replaces comments and
+formatting. Prompt changes create a new private `system.<id>.md` version beside
+the active prompt and atomically switch `SYSTEM_PROMPT_PATH`; older versions
+remain. Relative paths use the working directory. Restart or recreate the
+container to apply dotenv changes. Existing environment variables are not
+imported by the wizard.
+
+For LLM-only edits, the standalone `npm run setup-llm` command remains available.
+All three commands accept `-- --env-file PATH`; compiled entries are
+`node dist/cli.js setup|config|setup-llm [--env-file PATH]`. An interactive
+terminal is required. Registration and configuration actions return structured
+results and progress independently of terminal rendering. Host lifecycle
+commands remain M3 work; a full-screen TUI is outside v1.0. See
+[ROADMAP.md](ROADMAP.md) and the
 [CLI boundaries](docs/ARCHITECTURE.md#cli-boundaries-m2m3).
-
-### CLI: LLM and prompt setup (M2.2)
-
-After Gryt setup, configure the OpenAI-compatible API and system prompt with:
-
-```sh
-npm run setup-llm
-# Or select another dotenv file:
-npm run setup-llm -- --env-file /path/to/bot.env
-```
-
-The wizard asks for API base URL, model, hidden API key, context/output limits
-and timeout. It tests the current draft with one short Chat Completions request.
-If the test fails, you can retry, change the draft, explicitly save without a
-successful test, or cancel. Prompt edits use multiline input; finish with `.end`
-on a line by itself, or enter `..end` for a literal `.end` line. Saving requires
-confirmation. Ctrl+C leaves the saved dotenv and prompt untouched.
-
-Prompt saves create a new private `system.<id>.md` version beside the current
-prompt and atomically switch `SYSTEM_PROMPT_PATH` in dotenv. Earlier prompt
-versions remain available. Settings and prompts use the selected dotenv and
-working directory; unrelated settings are preserved, while comments and
-formatting are rewritten. Restart or recreate the bot container to apply the
-new dotenv values. Compiled entry: `node dist/cli.js setup-llm [--env-file PATH]`.
 
 Runtime and setup share an atomic lock beside the identity file
 (`<identity-path>.lock`). A second process fails before loading the identity or
