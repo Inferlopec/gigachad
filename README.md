@@ -10,122 +10,91 @@ A minimal mention-only AI bot for Gryt servers. Built with `@gryt/bot` and an Op
 
 ## User Guide
 
-### Install (Docker)
+### Install a prebuilt version (M3.1)
 
-Requires Git and Docker Engine with Compose.
+Target: Linux amd64 with Docker Engine and **Docker Compose v2** already
+installed and accessible. The installer needs Bash, GNU coreutils, tar and curl;
+it does not install Docker. Node.js and Git are not needed on the target host.
 
-On the remote server, log in as the account that will install and update the bot. Prepare a directory owned by that account, then clone without `sudo`:
-
-```sh
-sudo mkdir -p /opt/gryt-gigachad
-sudo chown "$(id -u):$(id -g)" /opt/gryt-gigachad
-git clone https://github.com/Inferlopec/gigachad /opt/gryt-gigachad
-cd /opt/gryt-gigachad
-cp .env.example .env
-chmod 600 .env
-```
-
-Edit `.env` and `prompts/system.md` before starting:
-
-- `GRYT_HOST` and `GRYT_NICKNAME` — your Gryt server and bot display name
-- `GRYT_ALLOWED_CHANNEL_ID` — the channel where the bot responds (see below)
-- `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` — your OpenAI-compatible endpoint, model and API key
-- `LLM_CONTEXT_TOKENS` and `LLM_MAX_TOKENS` — limits supported by your model
-- `SYSTEM_PROMPT_PATH` — prompt file (default `prompts/system.md`); container paths must be inside the mounted prompt directory
-- Search is disabled by default. Enable it with `SEARCH_ENABLED=true` and the Compose `search` profile.
-
-**Finding the channel ID:** In Gryt, right-click the target channel → **Copy channel mention**. Paste it into a text editor: `[#channel](channel:chat.example.com/CHANNEL_ID)`. Use only `CHANNEL_ID` (the part after the final `/`, without the closing `)`). If the link has no server host (`channel:CHANNEL_ID`), use the part after `channel:`.
-
-Start the bot:
+**Release publication is implemented in M4.** Until a versioned release/image
+exists, use the local package workflow in [deployment notes](docs/DEPLOYMENT.md).
+The following is the release installation contract, not a claim that the example
+version has been published:
 
 ```sh
-docker compose up -d --build
-docker compose logs -f --tail=100 gigachad
+version=v1.0.0-rc.1 # replace with an available release tag
+curl --fail --location --proto '=https' --proto-redir '=https' \
+  "https://github.com/Inferlopec/gigachad/releases/download/$version/install.sh" \
+  -o install.sh
+# Inspect the downloaded script before running it as root.
+sudo bash install.sh --version "$version"
 ```
 
-By default this starts only **gigachad**. Search is disabled and the bot has no
-startup dependency on SearXNG.
+The installer downloads and checks the versioned assets, pulls the matching
+`ghcr.io/inferlopec/gigachad:<version>` image and validates Compose. It installs
+into `/opt/gigachad` and creates `/usr/local/bin/gigachad`; both paths can be
+changed with `--install-dir` and `--bin-dir`. An existing installation or launcher
+is refused without overwriting it. Installation never starts setup or services.
 
-To enable web search, set `SEARCH_ENABLED=true` in `.env` and start the managed
-backend with `docker compose --profile search up -d --build`. The bot always
-uses SearXNG at the fixed internal address `http://searxng:8080`; this address
-is not a user setting. See [Web search](#web-search-optional).
-
-### Register the bot
-
-1. Start the bot with valid configuration. It creates its identity and waits for approval.
-2. A Gryt administrator with `manage_bots` opens **Server settings → Bots**, enables bot requests if needed, and approves the bot under its configured nickname with only `read_messages` and `send_messages`.
-3. Ensure the bot can access the configured channel. Approval takes effect while the process runs.
-4. In that channel, select the configured bot nickname from mention autocomplete and send a question.
-
-> **Alternative:** An administrator can pre-create a registration using the configured nickname and supply its single-use token in `GRYT_BOT_TOKEN`. Remove the token from `.env` after the first successful claim.
-
-### Update
-
-Run these commands on the remote server using the same account that installed the bot:
+`gigachad --help` and `gigachad --version` are available. Lifecycle commands and
+setup/config forwarding belong to M3.2; use these direct commands meanwhile:
 
 ```sh
-cd /opt/gryt-gigachad
-git pull --ff-only
-docker compose up -d --build
-docker compose logs --tail=100 gigachad
+cd /opt/gigachad
+sudo docker compose --env-file release.env run --rm --no-deps gigachad \
+  node /app/dist/cli.js setup --env-file /data/.env
+# After explicitly saving valid configuration:
+sudo docker compose --env-file release.env up -d gigachad
+sudo docker compose --env-file release.env logs -f --tail=100 gigachad
 ```
 
-This rebuilds the **gigachad** image and restarts the bot. The **searxng**
-container is only recreated if `compose.yaml` or the SearXNG image changed;
-otherwise Docker reuses the running container. To force-pull the latest
-SearXNG image:
+Setup registers the identity, waits for administrator approval if required,
+selects a channel and configures the LLM, prompt and optional search. Setup
+never starts the runtime. Cancelled edits preserve previously saved settings;
+a newly created identity remains durable even when later steps are cancelled.
+For approval, a Gryt administrator with `manage_bots` opens **Server settings →
+Bots** and grants `read_messages` and `send_messages` plus access to the selected
+channel. An administrator-created single-use registration token can instead be
+entered in setup; it is removed from the saved dotenv.
+
+### Edit configuration and enable optional search
+
+Stop the runtime before opening a wizard that may register with Gryt:
 
 ```sh
-docker compose pull searxng
-docker compose up -d searxng
+cd /opt/gigachad
+sudo docker compose --env-file release.env stop gigachad
+sudo docker compose --env-file release.env run --rm --no-deps gigachad \
+  node /app/dist/cli.js config --env-file /data/.env
+sudo docker compose --env-file release.env up -d gigachad
 ```
 
-The `.env` file, identity volume, and SearXNG cache volume survive updates.
-In-memory conversation history and the search cache reset when the gigachad
-container restarts. Save any custom prompt edits before pulling and check
-`.env.example` for new settings. To apply only `.env` changes:
-`docker compose up -d --force-recreate gigachad`.
+If search was explicitly enabled and saved, start the managed backend with
+`sudo docker compose --env-file release.env --profile search up -d`.
+With search disabled, only `gigachad` starts. There are no incoming bot ports,
+no mounted Docker socket, and no mandatory SearXNG dependency.
 
-If Git reports **dubious ownership** after an earlier installation under another account, run this once as the account that will manage the bot, then retry the update:
+### Persistent data and identity
 
-```sh
-sudo chown -R "$(id -u):$(id -g)" /opt/gryt-gigachad
-```
+`/opt/gigachad/data` is mounted as `/data` for runtime and setup. It contains
+private `.env`, `identity/gryt-bot-identity.json`, and `prompts/` with the active
+prompt and its saved versions. Directories are `0700`, dotenv and prompts are
+`0600`, owned by the image's `node` user (UID/GID 1000). Root can manage them on
+the host. The image runs without root. Keep container paths inside `/data`.
 
-Run Git commands without `sudo`. If Docker requires elevated permissions, use `sudo` for the `docker compose` commands only.
+The runtime reads dotenv when it starts. After changing settings, restart it
+with `sudo docker compose --env-file release.env restart gigachad`. Prompt edits
+are read on each request. `release.env` contains only the selected image;
+credentials remain in `data/.env` and are never interpolated by Compose.
 
-### Back up the identity
+Back up the entire data directory securely while runtime and setup are stopped.
+Possession of the identity permits impersonating the bot. Never delete it or
+its lock to resolve a running owner's conflict. Lock recovery requires stopping
+all owners and removing only the adjacent empty `.lock` directory.
 
-The identity is stored in the Compose volume `gryt-gigachad_identity` at `/data/gryt-bot-identity.json`. **Back it up securely** — possession allows impersonating the bot, and losing it requires re-registration. Do not run `docker compose down -v` unless you intend to delete it.
-
-```sh
-docker compose stop gigachad
-docker compose run --rm --no-deps --entrypoint tar gigachad -C /data -czf - . > identity-backup.tar.gz
-chmod 600 identity-backup.tar.gz
-docker compose start gigachad
-```
-
-Restore into an initialized volume:
-
-```sh
-docker compose run --rm --no-deps -T --entrypoint tar gigachad -C /data -xzf - < identity-backup.tar.gz
-docker compose up -d
-```
-
-Store backups outside the repository.
-
-### System prompt
-
-Edit the file selected by `SYSTEM_PROMPT_PATH` (default `prompts/system.md`). The bot reads it for every request — no restart needed. Compose mounts the directory read-only so editor saves remain visible. Missing or empty prompts fail the request with a brief error.
-
-`prompts/system.md` is **not committed** to git (see `.gitignore`); the repo ships a template, `prompts/system.md.example`. On a fresh install, copy the template to create your local prompt:
-
-```sh
-cp prompts/system.md.example prompts/system.md
-```
-
-Your local edits stay out of version control, so `git pull --ff-only` during updates will never touch or conflict with your customized prompt.
+Update/uninstall tooling and external search support arrive in M3.3. Do not
+rerun the fresh installer as an update or remove data to make it accept an
+existing installation.
 
 ## Developer Guide
 
@@ -173,7 +142,7 @@ All three commands accept `-- --env-file PATH`; compiled entries are
 `node dist/cli.js setup|config|setup-llm [--env-file PATH]`. An interactive
 terminal is required. Registration and configuration actions return structured
 results and progress independently of terminal rendering. Host lifecycle
-commands remain M3 work; a full-screen TUI is outside v1.0. See
+commands remain M3.2 work; a full-screen TUI is outside v1.0. See
 [ROADMAP.md](ROADMAP.md) and the
 [CLI boundaries](docs/ARCHITECTURE.md#cli-boundaries-m2m3).
 
@@ -185,17 +154,25 @@ setup processes using that identity, then remove only the empty `.lock`
 directory with `rmdir`. Keep the identity file. Lock recovery is deliberately
 manual to avoid replacing a bot's identity or interrupting an active owner.
 
-### Setup
+### Source development setup
+
+The root `compose.yaml` remains a source-build development deployment;
+prebuilt installations use the separate packaged Compose described above.
 
 Requires Node.js 24 and npm. The repository includes `.nvmrc` for version managers.
 
 ```sh
 npm ci
-cp .env.example .env
-chmod 600 .env
+npm run setup
 ```
 
-Edit `.env` as described in the user guide above.
+The wizard saves `.env` and a prompt after explicit confirmation. For manual
+development configuration, copy `.env.example` to `.env` with mode `0600` and
+`prompts/system.md.example` to `prompts/system.md`, then fill the required Gryt
+and LLM settings. The source Compose still builds with `docker compose up -d
+--build`; its identity lives in the existing named volume, independently of
+the local Node.js identity. No migration into the prebuilt installation is
+performed by M3.1.
 
 ### Commands
 
@@ -213,7 +190,7 @@ npm start           # run compiled output
 
 Stop with Ctrl+C.
 
-### Web search (optional)
+### Web search (optional, source development Compose)
 
 The bot can search the web via a self-hosted [SearXNG](https://docs.searxng.org/) instance.
 Search is **disabled by default**. Set `SEARCH_ENABLED=true` to enable it and

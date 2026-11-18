@@ -13,6 +13,6 @@ RUN mkdir /data && chown node:node /data
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./
-COPY --chown=node:node prompts ./prompts
+COPY --chown=node:node prompts/system.md.example ./prompts/system.md.example
 USER node
 CMD ["node", "dist/index.js"]

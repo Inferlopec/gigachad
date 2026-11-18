@@ -52,6 +52,17 @@ Verify these boundaries with focused mocked action tests, including progress/can
 - Installer/release assets provide Compose and CLI files; install/update select a version rather than building source on the host.
 - Updates replace application artifacts, not user data. Uninstall preserves data by default; explicit confirmation is required to delete it.
 
+M3.1 deployment assets live separately from the source development Compose.
+The installer packages a chosen image version, validates Docker/Compose v2 and
+installs files without running setup or starting services. Installed Compose
+mounts the private `data/` directory at `/data`, uses `/data` as the working
+directory, and loads the runtime dotenv with Node's env-file reader. Setup/config
+read and atomically save that same file; prompts and identity stay in the same
+writable persistent mount. Compose image selection is in separate `release.env`
+metadata and does not interpolate application secrets. The minimal launcher
+reports help/version until M3.2 provides host operations. See
+[`DEPLOYMENT.md`](DEPLOYMENT.md) for the asset contract and validation path.
+
 ## Setup flow
 
 1. Enter Gryt host and bot nickname; connect with existing/new identity or optional single-use registration token.

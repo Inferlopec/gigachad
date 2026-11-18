@@ -1,0 +1,40 @@
+name: gigachad
+services:
+  gigachad:
+    image: ${GIGACHAD_IMAGE:?Use --env-file release.env}
+    platform: linux/amd64
+    restart: unless-stopped
+    init: true
+    working_dir: /data
+    command: [node, --env-file=/data/.env, /app/dist/index.js]
+    volumes:
+      - ./data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  searxng:
+    profiles: [search]
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_LIMITER: "false"
+    volumes:
+      - ./searxng-settings:/etc/searxng:ro
+      - searxng-cache:/var/cache/searxng
+    healthcheck:
+      test: [CMD-SHELL, 'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(''http://127.0.0.1:8080/search?q=health&format=json'', timeout=5).status == 200 else 1)"']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+volumes:
+  searxng-cache:

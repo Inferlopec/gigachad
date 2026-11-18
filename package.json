@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node --env-file=.env src/index.ts",
     "build": "tsc",
+    "package:release": "bash scripts/package-release.sh",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "setup": "node src/cli.ts setup",
     "config": "node src/cli.ts config",

@@ -1,0 +1,14 @@
+# The installer prepends a Bash header and a quoted installation path.
+set -euo pipefail
+case "${1:---help}" in
+  --version)
+    [[ $# == 1 ]] || exit 1
+    IFS= read -r version < "$GIGACHAD_INSTALL_DIR/manifest"
+    printf 'gigachad %s\n' "$version"
+    ;;
+  --help|-h)
+    printf 'gigachad --help | --version\nInstallation: %s\n' "$GIGACHAD_INSTALL_DIR"
+    printf 'Host lifecycle and setup/config forwarding are planned for M3.2.\n'
+    ;;
+  *) printf 'Unknown command. Run gigachad --help.\n' >&2; exit 1 ;;
+esac

@@ -3,6 +3,7 @@
 .env.*
 node_modules
 dist
+dist-release
 data
 .tools
 test
